@@ -73,6 +73,7 @@ rsync -aAXP \
   --exclude=".subversion/" \
   --exclude=".mozilla/" \
   --exclude=".local/share/fonts/" \
+  --exclude=".vscode-oss/" \
   --exclude="Trash/" \
   "$SRC_HOME/" "$BKP_FOLDER/$(basename "$SRC_HOME")/"
 
@@ -84,5 +85,4 @@ rsync -aAXP \
 echo "Bully complete."
 echo "Uncompressed folder: $BKP_FOLDER"
 echo "LUKS header backup:  $LUKS_HEADER_FILE"
-
 

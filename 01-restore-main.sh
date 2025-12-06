@@ -5,7 +5,7 @@
 set -euo pipefail
 
 ### VAR
-USB="/run/media/ralexander/netac"
+USB="/run/media/$USER/netac"
 # Only things you really want to loop over:
 DIRS=(Documents Pictures Obsidian Working Shared VM Codes Videos .ssh)
 
