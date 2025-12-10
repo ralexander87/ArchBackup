@@ -1,6 +1,6 @@
 #!/bin/bash
 
-THEME="/home/ralexander/Srv/grub/lateralus"
+THEME="/home/$USER/Srv/grub/lateralus"
 GRUB_DEFAULT_FILE="/etc/default/grub"
 BACKUP="/etc/default/grub.bak.$(date +%Y%m%d-%H%M%S)"
 
