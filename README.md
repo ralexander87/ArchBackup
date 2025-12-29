@@ -1,7 +1,4 @@
----
-code: BASH PY
-device: lateralus
----
+
 # Full Backup & Restore Guide
 
 This is the single, comprehensive guide for all backup/restore scripts in this repo.
