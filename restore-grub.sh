@@ -1,14 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-THEME="/home/$USER/Srv/grub/lateralus"
+# Notes:
+# - Restores GRUB theme from backup and updates /etc/default/grub.
+# - Overwrites GRUB config settings (with backup).
+# - Does NOT restore LUKS header or /etc/fstab.
+
+USB_LABEL="${BKP_USB_LABEL:-netac}"
+SRV="${SRV:-/run/media/$USER/$USB_LABEL/Srv}"
+THEME="$SRV/grub/lateralus"
 GRUB_DEFAULT_FILE="/etc/default/grub"
 BACKUP="/etc/default/grub.bak.$(date +%Y%m%d-%H%M%S)"
-
-
-# Edit /etc/default/grub and regenerate config with:
-# grub-mkconfig -o /boot/grub/grub.cfg
-
-set -euo pipefail
+TS="$(date +%Y%m%d%H%M%S)"
+BACKUP_DIR="/var/backups/restore-grub-$TS"
 
 # Re-run as root if needed
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
@@ -20,13 +24,27 @@ if [[ ! -f "$GRUB_DEFAULT_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -d "$SRV" ]]; then
+  echo "Error: backup directory not found: $SRV" >&2
+  exit 1
+fi
+
+if [[ ! -d "$THEME" ]]; then
+  echo "Error: theme directory not found: $THEME" >&2
+  exit 1
+fi
+
+mkdir -p "$BACKUP_DIR"
 echo "Creating backup: $BACKUP"
 cp -a "$GRUB_DEFAULT_FILE" "$BACKUP"
-cp -r "$THEME" "/boot/grub/themes"
 
-# Apply edits in-place
-#  - ^#? matches commented or uncommented variants
-#  - Use | as delimiter to avoid escaping slashes
+mkdir -p "/boot/grub/themes"
+if [[ -d "/boot/grub/themes/lateralus" ]]; then
+  echo "Backing up existing theme to: $BACKUP_DIR/lateralus"
+  rsync -a "/boot/grub/themes/lateralus/" "$BACKUP_DIR/lateralus/"
+fi
+rsync -a "$THEME" "/boot/grub/themes/"
+
 sed -Ei \
   -e 's|^#?GRUB_CMDLINE_LINUX_DEFAULT=.*$|GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 quiet splash"|' \
   -e 's|^#?GRUB_GFXMODE=.*$|GRUB_GFXMODE=1440x1080x32|' \
@@ -35,20 +53,16 @@ sed -Ei \
   -e 's|^#?GRUB_TERMINAL_OUTPUTconsole$|GRUB_TERMINAL_OUTPUT=gfxterm|' \
   "$GRUB_DEFAULT_FILE"
 
-# Ensure GRUB_THEME exists if it wasn't present at all (append once)
 if ! grep -Eq '^[#]?GRUB_THEME=' "$GRUB_DEFAULT_FILE"; then
   echo 'GRUB_THEME="/boot/grub/themes/lateralus/theme.txt"' >> "$GRUB_DEFAULT_FILE"
 fi
 
 echo "Updated $GRUB_DEFAULT_FILE"
 
-# Regenerate GRUB config using your command
 if ! command -v grub-mkconfig >/dev/null 2>&1; then
   echo "Error: grub-mkconfig not found in PATH." >&2
   exit 1
 fi
 
-# re-generate grub.cfg
-sudo grub-mkconfig -o /boot/grub/grub.cfg
-
+grub-mkconfig -o /boot/grub/grub.cfg
 echo "Done: /boot/grub/grub.cfg rebuilt."
