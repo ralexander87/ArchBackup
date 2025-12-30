@@ -1,150 +1,89 @@
-
 # Full Backup & Restore Guide
 
-This is the single, comprehensive guide for all backup/restore scripts in this repo.
-All scripts are v2-only.
+This is a short GitHub README for all backup/restore scripts in this repo.
+v2 uses fixed paths, v3 uses interactive device selection.
 
 ## Quick map
 
-- Daily rsync backup: `backup-rsync-v2.sh`, `backup-rsync-v2.py`
-- Full SSD backup: `backup-full-ssd-v2.sh`, `backup-full-ssd-v2.py`
+- Daily rsync backup:
+  - v2: `rsync/backup-rsync-v2.sh`, `rsync/backup-rsync-v2.py`
+  - v3: `v3/backup-rsync-v3.sh`, `v3/backup-rsync-v3.py`
+- Full SSD backup:
+  - v2: `full/backup-full-ssd-v2.sh`, `full/backup-full-ssd-v2.py`
+  - v3: `v3/backup-full-ssd-v3.sh`, `v3/backup-full-ssd-v3.py`
+- Pre-reinstall USB backup + restore:
+  - v2 Bash: `BR/v2/*.sh`
+  - v2 Python: `BR/v2/py/*.py`
+
+## v3 behavior
+
+- Lists mounted external devices and prompts to select one.
+- Optionally creates a timestamped directory on the device.
+- Asks for confirmation before starting.
 
 ## Daily backup (rsync)
 
 Scripts:
 
-- `backup-rsync-v2.sh`
-- `backup-rsync-v2.py`
+- v2: `rsync/backup-rsync-v2.sh`, `rsync/backup-rsync-v2.py`
+- v3: `v3/backup-rsync-v3.sh`, `v3/backup-rsync-v3.py`
 
 What it does:
 
-- Backs up a curated set of user and system files into `~/Shared/ArchBKP/<timestamp>`.
-- Logs to `backup.log` inside the backup folder.
-- Compresses the backup into `*.tar.gz`.
+- Backs up a curated set of user and system files.
+- Creates a compressed archive in a timestamped folder.
+- Logs are quiet on terminal; detailed logs go to the log file.
 
-Notes:
-
-- Safe timestamp format (no `:`).
-- Uses `pigz` if installed (auto-installs on Arch).
-
-## Full backup (SSD → USB)
+## Full backup (SSD -> USB)
 
 Scripts:
 
-- `backup-full-ssd-v2.sh`
-- `backup-full-ssd-v2.py`
+- v2: `full/backup-full-ssd-v2.sh`, `full/backup-full-ssd-v2.py`
+- v3: `v3/backup-full-ssd-v3.sh`, `v3/backup-full-ssd-v3.py`
 
 What it does:
 
-- Creates a timestamped folder under `BKP/` with `root/` + `home/`.
+- Creates a timestamped folder with `root/` + `home/`.
 - Creates `full-backup-<timestamp>.tar.gz`.
-- Writes logs to `BKP/logs/`.
 - Stores a LUKS header backup (backup-only).
-- Keeps only the last 3 snapshots + archives.
 
-Backup layout:
-
-```
-Lateralus/
-BKP/
-<timestamp>/
-root/
-home/
-full-backup-<timestamp>.tar.gz
-logs/
-backup-full-ssd-<timestamp>.log
-
-```
-
-Run:
+Run (v3 example):
 
 ```bash
-./full/backup-full-ssd-v2.sh
+./v3/backup-full-ssd-v3.sh
 ```
-
-or
-
-```bash
-python3 full/backup-full-ssd-v2.py
-```
-
-Python env overrides:
-
-- `BKP_USB_LABEL` (USB label)
-- `BKP_MIN_FREE_GB` (free-space threshold)
-- `BKP_LUKS_DEVICE` (LUKS device path)
 
 ## Pre-reinstall USB backup + restore (BR/v2)
 
-### Backup
+Backup:
 
-Scripts:
+- `BR/v2/backup-usb-v2.sh`
+- `BR/v2/py/backup-usb-v2.py`
 
-- `backup-usb-v2.sh`
-- `backup-usb-v2.py`
+Restore:
 
-Backs up:
-
-- User data → `USB/home/`
-- Dotfiles → `USB/dots/`
-- Service/system configs → `USB/Srv/`
-- LUKS header → `USB/luks-header-<timestamp>.img` (backup-only)
-- `fstab` → `USB/Srv/fstab` (backup-only)
-
-USB layout:
-
-```
-
-netac/
-home/
-dots/
-Srv/
-grub/
-samba/
-ssh/
-mkinitcpio.conf
-plymouthd.defaults
-fstab
-
-```
-
-### Restore (fresh install)
-
-Scripts:
-
-- `restore-main-v2.sh` / `restore-main-v2.py`
-- `restore-dots-v2.sh` / `restore-dots-v2.py`
-- `restore-serv-v2.sh` / `restore-serv-v2.py`
-- `restore-grub-v2.sh` / `restore-grub-v2.py`
+- `BR/v2/restore-main-v2.*`
+- `BR/v2/restore-dots-v2.*`
+- `BR/v2/restore-serv-v2.*`
+- `BR/v2/restore-grub-v2.*`
 
 Recommended order:
 
 1. Mount the USB at `/run/media/$USER/netac` (or set `BKP_USB_LABEL`).
-2. `restore-main-v2.sh`
-Restores home directories, dotfiles, installs fonts, installs yay.
+2. `restore-main-v2.*`
+3. `restore-dots-v2.*`
+4. `sudo restore-serv-v2.*`
+5. `sudo restore-grub-v2.*`
 
-3. `restore-dots-v2.sh`
-Applies dotfile tweaks from `~/dots` and backs up overwritten files.
+## Notes
 
-4. `sudo ./restore-serv-v2.sh`
-Restores Samba + SSH configs, enables services, validates and rolls back on failure.
+- LUKS header backups are backup-only and never auto-restored.
+- `/etc/fstab` is backed up for reference only.
+- Restore scripts create safety backups before overwriting configs.
 
-5. `sudo ./restore-grub-v2.sh`
-Restores GRUB theme and rebuilds `grub.cfg`.
+## Env overrides (Python)
 
-Notes:
+- `BKP_MIN_FREE_GB`
+- `BKP_LUKS_DEVICE`
+- `BKP_USB_LABEL` (v2 only)
 
-- `restore-main` does **not** touch Samba/SSH; `restore-serv` handles those.
-- `restore-dots` makes a timestamped backup of all overwritten files.
-- LUKS header and `/etc/fstab` are **backup-only** (never restored automatically).
-
-## Environment overrides (BR/v2)
-
-- `BKP_USB_LABEL=<label>` to use a non-default USB label.
-- `SRV=/run/media/$USER/<label>/Srv` to override service/grub restore source.
-
-## Safety
-
-- Restore scripts create backups before overwriting configs.
-- SSH and Samba restores validate configs and roll back on failure.
-- Logs are written to USB when possible; Python restore scripts fall back to `/tmp`.
