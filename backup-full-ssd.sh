@@ -1,55 +1,136 @@
 #!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
+
 echo "------------------------------------------------------------------------------------"
 
-# Backup location on USB
-BKP_ROOT="/run/media/$USER/Lateralus"
-TIMESTAMP=$(date '+%j-%Y-%H%M')
-BKP_BASE="$BKP_ROOT/BKP"
-BKP_FOLDER="$BKP_BASE/$TIMESTAMP"
+TOTAL_STEPS=5
+STEP=0
+status() { printf '%s\n' "$*" >/dev/tty; }
+progress() {
+  STEP=$((STEP + 1))
+  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+}
+err() { printf '[!] %s\n' "$*" >/dev/tty; }
+
+rsync_allow_partial() {
+  set +e
+  rsync "$@"
+  local rc=$?
+  set -e
+  if [[ $rc -ne 0 && $rc -ne 23 && $rc -ne 24 ]]; then
+    return $rc
+  fi
+  if [[ $rc -eq 23 || $rc -eq 24 ]]; then
+    echo "[!] rsync completed with partial transfer (code $rc). Continuing."
+  fi
+  return 0
+}
+
+select_mountpoint() {
+  local user="${SUDO_USER:-$USER}"
+  local -a mounts=()
+  local -a descs=()
+  local line
+  while read -r line; do
+    eval "$line"
+    [[ "${TYPE:-}" != "part" ]] && continue
+    [[ -z "${MOUNTPOINT:-}" ]] && continue
+    if [[ "$MOUNTPOINT" != "/run/media/$user/"* && "$MOUNTPOINT" != "/media/$user/"* ]]; then
+      continue
+    fi
+    mounts+=("$MOUNTPOINT")
+    descs+=("$MOUNTPOINT ($NAME, ${SIZE:-?}, ${TRAN:-?}, ${MODEL:-unknown})")
+  done < <(lsblk -P -o NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE)
+
+  if (( ${#mounts[@]} == 0 )); then
+    err "No mounted external devices found under /run/media/$user or /media/$user."
+    exit 1
+  fi
+
+  printf 'Select target device:\n' >/dev/tty
+  local i
+  for i in "${!mounts[@]}"; do
+    printf '  %d) %s\n' $((i + 1)) "${descs[$i]}" >/dev/tty
+  done
+  printf 'Enter number: ' >/dev/tty
+  read -r choice
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#mounts[@]} )); then
+    err "Invalid selection."
+    exit 1
+  fi
+  SELECTED_MOUNT="${mounts[$((choice - 1))]}"
+}
+
+TS=$(date '+%j-%Y-%H%M')
+select_mountpoint
+
+printf 'Create timestamped directory under %s? [y/N]: ' "$SELECTED_MOUNT" >/dev/tty
+read -r create_dir
+if [[ "$create_dir" =~ ^[Yy]$ ]]; then
+  BASE_DIR="$SELECTED_MOUNT/$TS"
+  mkdir -p "$BASE_DIR"
+  CREATED_DIR="yes"
+else
+  BASE_DIR="$SELECTED_MOUNT"
+  CREATED_DIR="no"
+fi
+
+printf 'Target: %s\n' "$BASE_DIR" >/dev/tty
+printf 'Proceed with backup? [y/N]: ' >/dev/tty
+read -r confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  status "Cancelled."
+  exit 0
+fi
+
+# Backup location on selected device
+BKP_BASE="$BASE_DIR"
+BKP_FOLDER="$BKP_BASE/$TS"
 ROOT_DIR="$BKP_FOLDER/root"
 HOME_DIR="$BKP_FOLDER/home"
-
 LOG_DIR="$BKP_BASE/logs"
-LOG_FILE="$LOG_DIR/backup-full-ssd-$TIMESTAMP.log"
-ARCHIVE_FILE="$BKP_BASE/full-backup-$TIMESTAMP.tar.gz"
-
-# Ensure USB is actually mounted
-if ! mountpoint -q "$BKP_ROOT"; then
-  echo "ERROR: $BKP_ROOT is not a mountpoint. Is the USB plugged in and mounted?"
-  exit 1
-fi
+LOG_FILE="$LOG_DIR/backup-full-ssd-$TS.log"
+ARCHIVE_FILE="$BKP_BASE/full-backup-$TS.tar.gz"
 
 # Prereqs
 REQUIRED_CMDS=(rsync mountpoint sudo cryptsetup)
 for cmd in "${REQUIRED_CMDS[@]}"; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "Missing required command: $cmd"
+    err "Missing required command: $cmd"
     exit 1
   fi
 done
 if ! command -v sha256sum >/dev/null 2>&1; then
-  echo "Missing required command: sha256sum"
+  err "Missing required command: sha256sum"
   exit 1
 fi
 
-if [[ ! -w "$BKP_ROOT" ]]; then
-  echo "Backup root not writable: $BKP_ROOT"
+if ! mountpoint -q "$SELECTED_MOUNT"; then
+  err "ERROR: $SELECTED_MOUNT is not a mountpoint."
+  exit 1
+fi
+
+if [[ ! -w "$BASE_DIR" ]]; then
+  err "Backup root not writable: $BASE_DIR"
   exit 1
 fi
 
 MIN_FREE_GB=20
-FREE_GB=$(df -P -BG "$BKP_ROOT" | awk 'NR==2 {gsub(/G/,"",$4); print $4}')
+FREE_GB=$(df -P -BG "$SELECTED_MOUNT" | awk 'NR==2 {gsub(/G/,"",$4); print $4}')
 if [[ -n "$FREE_GB" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
-  echo "Not enough free space on $BKP_ROOT: ${FREE_GB}G available, need ${MIN_FREE_GB}G"
+  err "Not enough free space on $SELECTED_MOUNT: ${FREE_GB}G available, need ${MIN_FREE_GB}G"
   exit 1
 fi
 
 mkdir -p "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR" "$LOG_DIR"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "Backup start: $(date -Is)"
-echo "Starting full BKP to: $BKP_FOLDER"
+exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+status "Backup start: $(date -Is)"
+status "Log: $LOG_FILE"
+status "Target: $BASE_DIR (new dir: $CREATED_DIR)"
 
+progress "Pre-flight checks"
 # Install pigz if it is not installed
 if ! command -v pigz >/dev/null 2>&1; then
   echo "pigz not found, installing..."
@@ -67,6 +148,7 @@ else
   echo "pigz already installed, continuing..."
 fi
 
+progress "LUKS header (if present)"
 # Determine which home to back up (avoid backing up /root by accident)
 if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
   SRC_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
@@ -77,7 +159,7 @@ fi
 ########################################
 # LUKS header backup
 ########################################
-LUKS_HEADER_FILE="$BKP_BASE/luks-header-$TIMESTAMP.img"
+LUKS_HEADER_FILE="$BKP_BASE/luks-header-$TS.img"
 LUKS_DEVICE="/dev/nvme0n1p2"
 
 if [[ -b "$LUKS_DEVICE" ]]; then
@@ -88,6 +170,7 @@ else
 fi
 ########################################
 
+progress "System files"
 ##### System files (with sudo, preserving paths under root/)
 SYSTEM_PATHS=(
   "/boot/grub/themes/lateralus"
@@ -107,12 +190,13 @@ for src in "${SYSTEM_PATHS[@]}"; do
     continue
   fi
   echo "Backing up $src..."
-  sudo rsync -aR "$src" "$ROOT_DIR/"
+  sudo rsync -aR --quiet "$src" "$ROOT_DIR/"
 done
 
 ##### User files
+progress "User home"
 echo "Backing up $SRC_HOME..."
-rsync -aAXP \
+rsync_allow_partial -aAX --quiet --partial --partial-dir=.rsync-partial \
   --exclude=".cache/" \
   --exclude=".var/app/" \
   --exclude=".subversion/" \
@@ -122,40 +206,12 @@ rsync -aAXP \
   --exclude="Trash/" \
   "$SRC_HOME/" "$HOME_DIR/$(basename "$SRC_HOME")/"
 
+progress "Archive"
 echo "Compressing full backup to: $ARCHIVE_FILE"
-tar -I pigz -cf "$ARCHIVE_FILE" -C "$BKP_BASE" "$TIMESTAMP"
+tar --ignore-failed-read -I pigz -cf "$ARCHIVE_FILE" -C "$BKP_BASE" "$TS"
 echo "Archive checksum:"
 sha256sum "$ARCHIVE_FILE"
 
-echo "Backed up system paths:"
-for src in "${SYSTEM_PATHS[@]}"; do
-  echo "  $src"
-done
-echo "Backed up user home: $SRC_HOME"
-
 echo "Bully complete."
-echo "Uncompressed folder: $BKP_FOLDER"
-echo "Compressed archive : $ARCHIVE_FILE"
-echo "LUKS header backup:  $LUKS_HEADER_FILE"
-echo "Log file:            $LOG_FILE"
-echo "Backup end: $(date -Is)"
 
-##### Keep only last 3 backups (folders + archives)
-shopt -s nullglob
-folders=("$BKP_BASE"/[0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9])
-if (( ${#folders[@]} > 3 )); then
-  IFS=$'\n' sorted_dirs=($(ls -1td "${folders[@]}"))
-  for old in "${sorted_dirs[@]:3}"; do
-    echo "Removing old backup folder: $old"
-    rm -rf "$old"
-  done
-fi
-archives=("$BKP_BASE"/full-backup-*.tar.gz)
-if (( ${#archives[@]} > 3 )); then
-  IFS=$'\n' sorted_archives=($(ls -1t "${archives[@]}"))
-  for old in "${sorted_archives[@]:3}"; do
-    echo "Removing old archive: $old"
-    rm -f "$old"
-  done
-fi
-shopt -u nullglob
+status "Backup done: $ARCHIVE_FILE"

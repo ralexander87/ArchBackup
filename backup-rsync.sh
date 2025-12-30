@@ -1,12 +1,91 @@
 #!/usr/bin/env bash
-set -euo pipefail  # safer: exit on error, unset vars, fail on pipe errors
+set -euo pipefail
+IFS=$'\n\t'
 
 echo "------------------------------------------------------------------------------------"
 
-TIMESTAMP=$(date '+%j-%Y-%H%M')
-BKP_BASE="$HOME/Shared/ArchBKP"
-BKP_FOLDER="$BKP_BASE/$TIMESTAMP"
-BKP_TAR="$BKP_BASE/$TIMESTAMP.tar.gz"
+TOTAL_STEPS=5
+STEP=0
+status() { printf '%s\n' "$*" >/dev/tty; }
+progress() {
+  STEP=$((STEP + 1))
+  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+}
+err() { printf '[!] %s\n' "$*" >/dev/tty; }
+
+rsync_allow_partial() {
+  set +e
+  rsync "$@"
+  local rc=$?
+  set -e
+  if [[ $rc -ne 0 && $rc -ne 23 && $rc -ne 24 ]]; then
+    return $rc
+  fi
+  if [[ $rc -eq 23 || $rc -eq 24 ]]; then
+    echo "[!] rsync completed with partial transfer (code $rc). Continuing."
+  fi
+  return 0
+}
+
+select_mountpoint() {
+  local user="${SUDO_USER:-$USER}"
+  local -a mounts=()
+  local -a descs=()
+  local line
+  while read -r line; do
+    eval "$line"
+    [[ "${TYPE:-}" != "part" ]] && continue
+    [[ -z "${MOUNTPOINT:-}" ]] && continue
+    if [[ "$MOUNTPOINT" != "/run/media/$user/"* && "$MOUNTPOINT" != "/media/$user/"* ]]; then
+      continue
+    fi
+    mounts+=("$MOUNTPOINT")
+    descs+=("$MOUNTPOINT ($NAME, ${SIZE:-?}, ${TRAN:-?}, ${MODEL:-unknown})")
+  done < <(lsblk -P -o NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE)
+
+  if (( ${#mounts[@]} == 0 )); then
+    err "No mounted external devices found under /run/media/$user or /media/$user."
+    exit 1
+  fi
+
+  printf 'Select target device:\n' >/dev/tty
+  local i
+  for i in "${!mounts[@]}"; do
+    printf '  %d) %s\n' $((i + 1)) "${descs[$i]}" >/dev/tty
+  done
+  printf 'Enter number: ' >/dev/tty
+  read -r choice
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#mounts[@]} )); then
+    err "Invalid selection."
+    exit 1
+  fi
+  SELECTED_MOUNT="${mounts[$((choice - 1))]}"
+}
+
+TS=$(date '+%j-%Y-%H%M')
+select_mountpoint
+
+printf 'Create timestamped directory under %s? [y/N]: ' "$SELECTED_MOUNT" >/dev/tty
+read -r create_dir
+if [[ "$create_dir" =~ ^[Yy]$ ]]; then
+  BKP_BASE="$SELECTED_MOUNT/$TS"
+  mkdir -p "$BKP_BASE"
+  CREATED_DIR="yes"
+else
+  BKP_BASE="$SELECTED_MOUNT"
+  CREATED_DIR="no"
+fi
+
+printf 'Target: %s\n' "$BKP_BASE" >/dev/tty
+printf 'Proceed with backup? [y/N]: ' >/dev/tty
+read -r confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  status "Cancelled."
+  exit 0
+fi
+
+BKP_FOLDER="$BKP_BASE/$TS"
+BKP_TAR="$BKP_BASE/$TS.tar.gz"
 LOG_FILE="$BKP_FOLDER/backup.log"
 ROOT_DIR="$BKP_FOLDER/root"
 HOME_DIR="$BKP_FOLDER/home"
@@ -17,7 +96,7 @@ cleanup() {
   fi
 }
 
-trap 'echo "Backup failed."; cleanup' ERR
+trap 'err "Backup failed."; cleanup' ERR
 
 ##### Install pigz if it is not...
 if ! command -v pigz >/dev/null 2>&1; then
@@ -38,31 +117,33 @@ fi
 
 ### Start BKP
 mkdir -p "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "Backup start: $(date -Is)"
-echo "Starting BKP to: $BKP_FOLDER"
+exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+status "Backup start: $(date -Is)"
+status "Log: $LOG_FILE"
+status "Target: $BKP_BASE (new dir: $CREATED_DIR)"
 
 ##### Prereqs
 REQUIRED_CMDS=(rsync tar sudo)
 for cmd in "${REQUIRED_CMDS[@]}"; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "Missing required command: $cmd"
+    err "Missing required command: $cmd"
     exit 1
   fi
 done
-echo "rsync version: $(rsync --version | head -n 1)"
-echo "tar version: $(tar --version | head -n 1)"
 
-if [[ ! -d "$BKP_BASE" ]]; then
-  echo "Backup base does not exist: $BKP_BASE"
+if ! mountpoint -q "$SELECTED_MOUNT"; then
+  err "ERROR: $SELECTED_MOUNT is not a mountpoint."
   exit 1
 fi
+
 if [[ ! -w "$BKP_BASE" ]]; then
-  echo "Backup base not writable: $BKP_BASE"
+  err "Backup base not writable: $BKP_BASE"
   exit 1
 fi
 
+progress "Pre-flight checks"
 ##### System files (with sudo)
+progress "System files"
 SYSTEM_ITEMS=(
   "/boot/grub/themes/lateralus:$ROOT_DIR"
   "/etc/mkinitcpio.conf:$ROOT_DIR/mkinitcpio.conf"
@@ -84,11 +165,12 @@ for item in "${SYSTEM_ITEMS[@]}"; do
   fi
   echo "Backing up $src..."
   mkdir -p "$(dirname "$dest")"
-  sudo rsync -a --chown="$USER:$USER" "$src" "$dest"
+  sudo rsync -a --quiet --chown="$USER:$USER" "$src" "$dest"
 done
 
 ##### User files (except .ssh, handled separately)
-RSYNC_OPTS=(--human-readable --info=progress2 --partial --partial-dir=.rsync-partial)
+progress "User files"
+RSYNC_OPTS=(--human-readable --partial --partial-dir=.rsync-partial --quiet)
 EXCLUDES=(
   ".config/*/Cache/"
   ".config/*/cache/"
@@ -112,16 +194,17 @@ for path in "${USER_PATHS[@]}"; do
     continue
   fi
   echo "Backing up $HOME/$path..."
-  rsync -a \
+  rsync_allow_partial -a \
     "${RSYNC_OPTS[@]}" \
     "${EXCLUDE_ARGS[@]}" \
     "$HOME/$path" "$HOME_DIR/"
 done
 
 ##### .ssh with exclude for agent/
+progress "SSH keys"
 if [[ -d "$HOME/.ssh" ]]; then
   echo "Backing up $HOME/.ssh (excluding agent/)..."
-  rsync -a \
+  rsync_allow_partial -a \
     "${RSYNC_OPTS[@]}" \
     --exclude 'agent/' \
     "$HOME/.ssh/" "$HOME_DIR/.ssh/"
@@ -130,19 +213,13 @@ else
 fi
 
 ##### Start bully the backup
+progress "Archive"
 echo "Compressing backup to $BKP_TAR ..."
-tar -I pigz -cf "$BKP_TAR" -C "$BKP_BASE" "$TIMESTAMP"
+tar --ignore-failed-read -I pigz -cf "$BKP_TAR" -C "$BKP_BASE" "$TS"
 
 echo "Bully complete."
 echo "Uncompressed folder: $BKP_FOLDER"
 echo "Compressed archive : $BKP_TAR"
 du -sh "$BKP_FOLDER" "$BKP_TAR"
-echo "Backed up user paths:"
-for path in "${USER_PATHS[@]}"; do
-  echo "  $HOME/$path"
-done
-echo "Backed up system paths:"
-for item in "${SYSTEM_ITEMS[@]}"; do
-  echo "  ${item%%:*}"
-done
 echo "Backup end: $(date -Is)"
+status "Backup done: $BKP_TAR"

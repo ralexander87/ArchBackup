@@ -8,16 +8,39 @@ import sys
 
 
 LOG_FH = None
+QUIET = True
+TOTAL_STEPS = 3
+STEP = 0
 
 
 def log(msg):
+    if LOG_FH:
+        LOG_FH.write(msg + "\n")
+        LOG_FH.flush()
+
+
+def status(msg):
     print(msg)
     if LOG_FH:
         LOG_FH.write(msg + "\n")
         LOG_FH.flush()
 
 
+def progress(msg):
+    global STEP
+    STEP += 1
+    status(f"[{STEP}/{TOTAL_STEPS}] {msg}")
+
+
+def err(msg):
+    print(msg, file=sys.stderr)
+    if LOG_FH:
+        LOG_FH.write(msg + "\n")
+        LOG_FH.flush()
+
 def run(cmd, check=True):
+    if QUIET and LOG_FH:
+        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
     return subprocess.run(cmd, check=check)
 
 
@@ -64,16 +87,16 @@ def main():
     backup_dir = f"/var/backups/restore-grub-{ts}"
 
     if not os.path.isfile(grub_default):
-        print(f"Error: {grub_default} not found.", file=sys.stderr)
+        err(f"Error: {grub_default} not found.")
         sys.exit(1)
     if not os.path.isdir(srv):
-        print(f"Error: backup directory not found: {srv}", file=sys.stderr)
+        err(f"Error: backup directory not found: {srv}")
         sys.exit(1)
     if not os.path.isdir(theme):
-        print(f"Error: theme directory not found: {theme}", file=sys.stderr)
+        err(f"Error: theme directory not found: {theme}")
         sys.exit(1)
     if not command_exists("grub-mkconfig"):
-        print("Error: grub-mkconfig not found in PATH.", file=sys.stderr)
+        err("Error: grub-mkconfig not found in PATH.")
         sys.exit(1)
 
     os.makedirs(backup_dir, exist_ok=True)
@@ -86,18 +109,22 @@ def main():
     except OSError:
         log_path = f"/tmp/restore-grub-{ts}.log"
         LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-        print(f"[!] USB log path unavailable, using {log_path}")
+        err(f"[!] USB log path unavailable, using {log_path}")
 
     try:
+        status(f"Restore GRUB start: {datetime.datetime.now().isoformat()}")
+        status(f"Log: {log_path}")
+        progress("Backup defaults")
         log(f"Creating backup: {backup}")
         shutil.copy2(grub_default, backup)
 
         os.makedirs("/boot/grub/themes", exist_ok=True)
         if os.path.isdir("/boot/grub/themes/lateralus"):
             log(f"Backing up existing theme to: {backup_dir}/lateralus")
-            run(["rsync", "-a", "/boot/grub/themes/lateralus/", f"{backup_dir}/lateralus/"])
+            run(["rsync", "-a", "--quiet", "/boot/grub/themes/lateralus/", f"{backup_dir}/lateralus/"])
 
-        run(["rsync", "-a", theme, "/boot/grub/themes/"])
+        progress("Restore theme")
+        run(["rsync", "-a", "--quiet", theme, "/boot/grub/themes/"])
 
         with open(grub_default, "r", encoding="utf-8", errors="replace") as fh:
             lines = fh.readlines()
@@ -110,9 +137,10 @@ def main():
         with open(grub_default, "w", encoding="utf-8") as fh:
             fh.writelines(lines)
 
+        progress("Update grub.cfg")
         log(f"Updated {grub_default}")
         run(["grub-mkconfig", "-o", "/boot/grub/grub.cfg"])
-        log("Done: /boot/grub/grub.cfg rebuilt.")
+        status("Restore GRUB done.")
     finally:
         if LOG_FH:
             LOG_FH.close()

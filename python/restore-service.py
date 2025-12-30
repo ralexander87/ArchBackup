@@ -9,16 +9,39 @@ import sys
 
 
 LOG_FH = None
+QUIET = True
+TOTAL_STEPS = 4
+STEP = 0
 
 
 def log(msg):
+    if LOG_FH:
+        LOG_FH.write(msg + "\n")
+        LOG_FH.flush()
+
+
+def status(msg):
     print(msg)
     if LOG_FH:
         LOG_FH.write(msg + "\n")
         LOG_FH.flush()
 
 
+def progress(msg):
+    global STEP
+    STEP += 1
+    status(f"[{STEP}/{TOTAL_STEPS}] {msg}")
+
+
+def err(msg):
+    print(msg, file=sys.stderr)
+    if LOG_FH:
+        LOG_FH.write(msg + "\n")
+        LOG_FH.flush()
+
 def run(cmd, check=True):
+    if QUIET and LOG_FH:
+        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
     return subprocess.run(cmd, check=check)
 
 
@@ -28,7 +51,8 @@ def command_exists(cmd):
 
 def require_file(path):
     if not os.path.isfile(path):
-        raise SystemExit(f"Required file not found: {path}")
+        err(f"Required file not found: {path}")
+        raise SystemExit(1)
 
 
 def ensure_root():
@@ -37,24 +61,10 @@ def ensure_root():
         os.execvp("sudo", ["sudo", "-E", sys.executable, script] + sys.argv[1:])
 
 
-def service_exists(name):
-    proc = subprocess.run(
-        ["systemctl", "list-unit-files", "--type=service", "--no-legend"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    for line in proc.stdout.splitlines():
-        svc = line.split()[0]
-        if svc == name:
-            return True
-    return False
-
-
 def main():
     ensure_root()
 
-    run_as_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
+    run_as_user = "ralexander"
     run_as_group = pwd.getpwnam(run_as_user).pw_gid
     user_home = pwd.getpwnam(run_as_user).pw_dir
 
@@ -73,17 +83,15 @@ def main():
 
     for cmd in ["systemctl", "modprobe", "smbpasswd", "rsync", "sshd"]:
         if not command_exists(cmd):
-            raise SystemExit(f"Missing required command: {cmd}")
+            err(f"Missing required command: {cmd}")
+            raise SystemExit(1)
 
     if not os.path.isdir(srv):
-        raise SystemExit(f"Backup directory not found: {srv}")
+        err(f"Backup directory not found: {srv}")
+        raise SystemExit(1)
 
     require_file(smb_conf_src)
     require_file(sshd_conf_src)
-
-    for svc in smb_services + [sshd_service, yubi_service]:
-        if not service_exists(svc):
-            raise SystemExit(f"Service not found: {svc}")
 
     ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     backup_dir = f"/var/backups/restore-serv-{ts}"
@@ -97,13 +105,17 @@ def main():
     except OSError:
         log_path = f"/tmp/restore-serv-{ts}.log"
         LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-        print(f"[!] USB log path unavailable, using {log_path}")
+        err(f"[!] USB log path unavailable, using {log_path}")
+    status(f"Restore start: {datetime.datetime.now().isoformat()}")
+    status(f"Log: {log_path}")
+    progress("Kernel module")
     log("[*] Loading CIFS kernel module (if available)…")
     run(["modprobe", "cifs"], check=False)
 
+    progress("Samba config")
     if os.path.isdir("/etc/samba"):
         log(f"[*] Backing up /etc/samba to {backup_dir}/etc-samba...")
-        run(["rsync", "-a", "/etc/samba/", f"{backup_dir}/etc-samba/"])
+        run(["rsync", "-a", "--quiet", "/etc/samba/", f"{backup_dir}/etc-samba/"])
 
     smb_conf_bak = f"/etc/samba/smb.conf.{ts}.bak"
     shutil.copy2(smb_conf_src, smb_conf_bak)
@@ -124,6 +136,7 @@ def main():
     for d in smb_subdirs:
         os.chown(os.path.join(smb_root, d), pwd.getpwnam(run_as_user).pw_uid, run_as_group)
 
+    progress("Samba users/services")
     log(f"[*] Setting ownership of {smb_root} to {run_as_user}...")
     run(["chown", "-R", f"{run_as_user}:{run_as_group}", smb_root])
 
@@ -159,6 +172,7 @@ def main():
                 run(["systemctl", "restart", s], check=False)
             raise SystemExit("Samba services failed to start; backup restored. Fix errors and retry.")
 
+    progress("SSH config")
     src_ssh_dir = os.path.join(srv, "ssh", ".ssh")
     dest_ssh_dir = os.path.join(user_home, ".ssh")
 
@@ -169,11 +183,11 @@ def main():
         log("[*] Syncing SSH keys/config…")
         if os.path.isdir(dest_ssh_dir):
             log(f"[*] Backing up existing SSH directory to {backup_dir}/ssh...")
-            run(["rsync", "-a", f"{dest_ssh_dir}/", f"{backup_dir}/ssh/"])
+            run(["rsync", "-a", "--quiet", f"{dest_ssh_dir}/", f"{backup_dir}/ssh/"])
         os.makedirs(dest_ssh_dir, exist_ok=True)
         run(["chown", f"{run_as_user}:{run_as_group}", dest_ssh_dir])
         os.chmod(dest_ssh_dir, 0o700)
-        run(["rsync", "-PraH", "--delete", f"{src_ssh_dir}/", f"{dest_ssh_dir}/"])
+        run(["rsync", "-aH", "--quiet", "--delete", f"{src_ssh_dir}/", f"{dest_ssh_dir}/"])
         run(["chown", "-R", f"{run_as_user}:{run_as_group}", dest_ssh_dir])
 
         for root, _, files in os.walk(dest_ssh_dir):
@@ -209,7 +223,7 @@ def main():
         run(["systemctl", "--no-pager", "--full", "status", svc], check=False)
         log("----")
 
-    log("[*] Done.")
+    status("[*] Restore services done.")
     if LOG_FH:
         LOG_FH.close()
 

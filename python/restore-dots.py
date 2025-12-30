@@ -8,12 +8,42 @@ import sys
 from datetime import datetime
 
 
+LOG_FH = None
+QUIET = True
+TOTAL_STEPS = 4
+STEP = 0
+
+
 def command_exists(cmd):
     return shutil.which(cmd) is not None
 
 
 def run(cmd, check=True):
+    if QUIET and LOG_FH:
+        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
     return subprocess.run(cmd, check=check)
+
+
+def log(msg):
+    if LOG_FH:
+        LOG_FH.write(msg + "\n")
+        LOG_FH.flush()
+
+
+def status(msg):
+    print(msg)
+    log(msg)
+
+
+def progress(msg):
+    global STEP
+    STEP += 1
+    status(f"[{STEP}/{TOTAL_STEPS}] {msg}")
+
+
+def err(msg):
+    print(msg, file=sys.stderr)
+    log(msg)
 
 
 def backup_path(path, backup_dir, label=None):
@@ -54,17 +84,25 @@ def regex_replace_in_file(path, pattern, repl):
 
 
 def main():
+    log_path = f"/tmp/restore-dots-v2-{datetime.now().strftime('%Y%m%d%H%M%S')}.log"
+    global LOG_FH
+    LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
+
     run_as_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
     user_home = os.path.expanduser(f"~{run_as_user}")
     src = os.path.join(user_home, "dots")
     dots = os.path.join(user_home, ".mydotfiles", "com.ml4w.dotfiles.stable", ".config")
     hypr = os.path.join(dots, "hypr", "conf")
 
+    status(f"Restore dots start: {datetime.now().isoformat()}")
+    status(f"Log: {log_path}")
+    progress("Pre-flight")
+
     if not os.path.isdir(src):
-        print(f"ERROR: source not found: {src}")
+        err(f"ERROR: source not found: {src}")
         sys.exit(1)
     if not os.path.isdir(dots):
-        print(f"ERROR: dotfiles config not found: {dots}")
+        err(f"ERROR: dotfiles config not found: {dots}")
         sys.exit(1)
 
     backup_dir = os.path.join(
@@ -78,6 +116,7 @@ def main():
         run(["flatpak", "uninstall", "-y", "com.github.PintaProject.Pinta", "com.ml4w.calendar"], check=False)
 
     # hyprctl settings
+    progress("Core settings")
     os.makedirs(os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings"), exist_ok=True)
     hyprctl_src = os.path.join(src, "hyprctl.json")
     if os.path.isfile(hyprctl_src):
@@ -127,6 +166,7 @@ def main():
         restored_items.append("hypr/hyprlock.conf")
 
     # hypr includes
+    progress("Hyprland config")
     os.makedirs(os.path.join(hypr, "environments"), exist_ok=True)
     os.makedirs(os.path.join(hypr, "animations"), exist_ok=True)
     os.makedirs(os.path.join(hypr, "decorations"), exist_ok=True)
@@ -176,6 +216,7 @@ def main():
         restored_items.append(f"ml4w/settings/{fname}")
 
     # matugen
+    progress("Apps and themes")
     matugen_src = os.path.join(src, "matugen")
     if os.path.isdir(matugen_src):
         matugen_dest = os.path.join(dots, "matugen")
@@ -249,10 +290,9 @@ def main():
             shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
             restored_items.append(name)
 
-    print("Restore dots done.")
-    print(f"Backups saved to: {backup_dir}")
-    print(f"Backed up items: {' '.join([i for i in backed_up_items if i]) or 'none'}")
-    print(f"Restored items: {' '.join(restored_items) or 'none'}")
+    status("Restore dots done.")
+    if LOG_FH:
+        LOG_FH.close()
 
 
 if __name__ == "__main__":

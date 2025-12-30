@@ -14,6 +14,19 @@ BACKUP="/etc/default/grub.bak.$(date +%Y%m%d-%H%M%S)"
 TS="$(date +%Y%m%d%H%M%S)"
 BACKUP_DIR="/var/backups/restore-grub-$TS"
 
+TOTAL_STEPS=3
+STEP=0
+status() { printf '%s\n' "$*" >/dev/tty; }
+progress() {
+  STEP=$((STEP + 1))
+  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+}
+
+LOG_FILE="/tmp/restore-grub-v2-$TS.log"
+exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+status "Restore GRUB start: $(date -Is)"
+status "Log: $LOG_FILE"
+
 # Re-run as root if needed
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   exec sudo -p "[sudo] password for %u: " "$0" "$@"
@@ -35,15 +48,17 @@ if [[ ! -d "$THEME" ]]; then
 fi
 
 mkdir -p "$BACKUP_DIR"
+progress "Backup defaults"
 echo "Creating backup: $BACKUP"
 cp -a "$GRUB_DEFAULT_FILE" "$BACKUP"
 
 mkdir -p "/boot/grub/themes"
 if [[ -d "/boot/grub/themes/lateralus" ]]; then
   echo "Backing up existing theme to: $BACKUP_DIR/lateralus"
-  rsync -a "/boot/grub/themes/lateralus/" "$BACKUP_DIR/lateralus/"
+  rsync -a --quiet "/boot/grub/themes/lateralus/" "$BACKUP_DIR/lateralus/"
 fi
-rsync -a "$THEME" "/boot/grub/themes/"
+progress "Restore theme"
+rsync -a --quiet "$THEME" "/boot/grub/themes/"
 
 sed -Ei \
   -e 's|^#?GRUB_CMDLINE_LINUX_DEFAULT=.*$|GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 quiet splash"|' \
@@ -57,6 +72,7 @@ if ! grep -Eq '^[#]?GRUB_THEME=' "$GRUB_DEFAULT_FILE"; then
   echo 'GRUB_THEME="/boot/grub/themes/lateralus/theme.txt"' >> "$GRUB_DEFAULT_FILE"
 fi
 
+progress "Update grub.cfg"
 echo "Updated $GRUB_DEFAULT_FILE"
 
 if ! command -v grub-mkconfig >/dev/null 2>&1; then
@@ -65,4 +81,4 @@ if ! command -v grub-mkconfig >/dev/null 2>&1; then
 fi
 
 grub-mkconfig -o /boot/grub/grub.cfg
-echo "Done: /boot/grub/grub.cfg rebuilt."
+status "Restore GRUB done."

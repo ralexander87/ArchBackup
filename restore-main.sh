@@ -6,30 +6,44 @@ IFS=$'\n\t'
 
 USB_LABEL="${BKP_USB_LABEL:-netac}"
 USB="/run/media/$USER/$USB_LABEL"
-RUN_AS_USER="${SUDO_USER:-$USER}"
+RUN_AS_USER="ralexander"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 
 DIRS=(Documents Pictures Obsidian Working Shared VM Code Videos)
 
+TOTAL_STEPS=6
+STEP=0
+status() { printf '%s\n' "$*" >/dev/tty; }
+progress() {
+  STEP=$((STEP + 1))
+  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+}
+err() { printf '[!] %s\n' "$*" >/dev/tty; }
+
+LOG_FILE="/tmp/restore-main-v2-$(date +%Y%m%d%H%M%S).log"
+exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+status "Restore start: $(date -Is)"
+status "Log: $LOG_FILE"
+
 if ! command -v rsync >/dev/null 2>&1; then
-  echo "ERROR: rsync not found."
+  err "ERROR: rsync not found."
   exit 1
 fi
 if ! command -v mountpoint >/dev/null 2>&1; then
-  echo "ERROR: mountpoint not found."
+  err "ERROR: mountpoint not found."
   exit 1
 fi
 if ! mountpoint -q "$USB"; then
-  echo "ERROR: $USB is not a mountpoint. Is the USB plugged in and mounted?"
+  err "ERROR: $USB is not a mountpoint. Is the USB plugged in and mounted?"
   exit 1
 fi
 
 if [[ ! -d "$USB/home" ]]; then
-  echo "ERROR: $USB/home does not exist"
+  err "ERROR: $USB/home does not exist"
   exit 1
 fi
 if [[ ! -d "$USB/dots" ]]; then
-  echo "ERROR: $USB/dots does not exist"
+  err "ERROR: $USB/dots does not exist"
   exit 1
 fi
 
@@ -48,53 +62,59 @@ if [[ -f /usr/lib/sddm/sddm.conf.d/default.conf ]]; then
 fi
 
 # Thunar custom actions XML
+progress "Pre-flight + Thunar"
 UCA_RESTORED="no"
 if [[ -f "$USB/dots/uca.xml" ]]; then
-  rsync -Prah "$USB/dots/uca.xml" "$USER_HOME/.config/Thunar/"
+  rsync -arh --quiet "$USB/dots/uca.xml" "$USER_HOME/.config/Thunar/"
   UCA_RESTORED="yes"
 fi
 
 # Main home directories
+progress "User directories"
 RESTORED_DIRS=()
 for d in "${DIRS[@]}"; do
   if [[ -e "$USB/home/$d" ]]; then
-    rsync -Prah "$USB/home/$d" "$USER_HOME/"
+    rsync -arh --quiet "$USB/home/$d" "$USER_HOME/"
     RESTORED_DIRS+=("$d")
   fi
 done
 
 # Icons & themes
+progress "Icons and themes"
 CURSOR_RESTORED="no"
 if [[ -d "$USB/home/LyraX-cursors" ]]; then
-  rsync -Prah "$USB/home/LyraX-cursors" "$USER_HOME/.local/share/icons/"
+  rsync -arh --quiet "$USB/home/LyraX-cursors" "$USER_HOME/.local/share/icons/"
   CURSOR_RESTORED="yes"
 fi
 ICONS_RESTORED="no"
 THEMES_RESTORED="no"
-if rsync -Prah "$USB/home"/.icons "$USER_HOME/" 2>/dev/null; then
+if rsync -arh --quiet "$USB/home"/.icons "$USER_HOME/" 2>/dev/null; then
   ICONS_RESTORED="yes"
 fi
-if rsync -Prah "$USB/home"/.themes "$USER_HOME/" 2>/dev/null; then
+if rsync -arh --quiet "$USB/home"/.themes "$USER_HOME/" 2>/dev/null; then
   THEMES_RESTORED="yes"
 fi
 
-# Dotfiles tree (contents into $USER_HOME)
+# Dotfiles tree (folder into $USER_HOME)
+progress "Dotfiles"
 DOTS_RESTORED="no"
-if rsync -Prah "$USB/dots/" "$USER_HOME/"; then
+if rsync -arh --quiet "$USB/dots" "$USER_HOME/"; then
   DOTS_RESTORED="yes"
 fi
 
 # Font install
+progress "Fonts"
 FONTS_INSTALLED="no"
 if [[ -x "$USER_HOME/Shared/fonts/install.sh" ]]; then
   if bash "$USER_HOME/Shared/fonts/install.sh"; then
     FONTS_INSTALLED="yes"
   fi
 else
-  echo "Font install script not found or not executable: $USER_HOME/Shared/fonts/install.sh"
+  err "Font install script not found or not executable: $USER_HOME/Shared/fonts/install.sh"
 fi
 
 # Install yay
+progress "Yay"
 YAY_INSTALLED="no"
 if command -v pacman >/dev/null 2>&1; then
   sudo pacman -S --needed --noconfirm git base-devel
@@ -105,15 +125,7 @@ if command -v pacman >/dev/null 2>&1; then
     YAY_INSTALLED="yes"
   fi
 else
-  echo "pacman not found; skipping yay install."
+  err "pacman not found; skipping yay install."
 fi
 
-echo "Main restore done."
-echo "Restored directories: ${RESTORED_DIRS[*]:-none}"
-echo "Dotfiles restored: $DOTS_RESTORED"
-echo "Thunar uca.xml restored: $UCA_RESTORED"
-echo "Cursor pack restored: $CURSOR_RESTORED"
-echo ".icons restored: $ICONS_RESTORED"
-echo ".themes restored: $THEMES_RESTORED"
-echo "Fonts installed: $FONTS_INSTALLED"
-echo "Yay installed: $YAY_INSTALLED"
+status "Restore done."

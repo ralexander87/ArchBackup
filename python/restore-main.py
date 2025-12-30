@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-import getpass
 import os
 import pwd
 import shutil
 import subprocess
 import sys
+import time
+
+
+LOG_FH = None
+QUIET = True
+TOTAL_STEPS = 7
+STEP = 0
 
 
 def run(cmd, check=True):
+    if QUIET and LOG_FH:
+        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
     return subprocess.run(cmd, check=check)
 
 
@@ -15,32 +23,62 @@ def command_exists(cmd):
     return shutil.which(cmd) is not None
 
 
+def log(msg):
+    if LOG_FH:
+        LOG_FH.write(msg + "\n")
+        LOG_FH.flush()
+
+
+def status(msg):
+    print(msg)
+    log(msg)
+
+
+def progress(msg):
+    global STEP
+    STEP += 1
+    status(f"[{STEP}/{TOTAL_STEPS}] {msg}")
+
+
+def err(msg):
+    print(msg, file=sys.stderr)
+    log(msg)
+
+
 def main():
+    log_path = f"/tmp/restore-main-v2-{time.strftime('%Y%m%d%H%M%S')}.log"
+    global LOG_FH
+    LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
+
     usb_label = os.environ.get("BKP_USB_LABEL", "netac")
-    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
+    user = "ralexander"
     user_home = pwd.getpwnam(user).pw_dir
     usb = f"/run/media/{user}/{usb_label}"
     srv = os.path.join(usb, "Srv")
 
     dirs = ["Documents", "Pictures", "Obsidian", "Working", "Shared", "VM", "Code", "Videos"]
 
+    status(f"Restore start: {time.strftime('%Y-%m-%dT%H:%M:%S')}")
+    status(f"Log: {log_path}")
+    progress("Pre-flight checks")
+
     for cmd in ["rsync", "mountpoint"]:
         if not command_exists(cmd):
-            print(f"ERROR: {cmd} not found.")
+            err(f"ERROR: {cmd} not found.")
             sys.exit(1)
 
     if run(["mountpoint", "-q", usb], check=False).returncode != 0:
-        print(f"ERROR: {usb} is not a mountpoint. Is the USB plugged in and mounted?")
+        err(f"ERROR: {usb} is not a mountpoint. Is the USB plugged in and mounted?")
         sys.exit(1)
 
     if not os.path.isdir(os.path.join(usb, "home")):
-        print(f"ERROR: {usb}/home does not exist")
+        err(f"ERROR: {usb}/home does not exist")
         sys.exit(1)
     if not os.path.isdir(os.path.join(usb, "dots")):
-        print(f"ERROR: {usb}/dots does not exist")
+        err(f"ERROR: {usb}/dots does not exist")
         sys.exit(1)
     if not os.path.isdir(srv):
-        print(f"ERROR: {srv} does not exist")
+        err(f"ERROR: {srv} does not exist")
         sys.exit(1)
 
     os.makedirs(os.path.join(user_home, ".config", "Thunar"), exist_ok=True)
@@ -55,45 +93,51 @@ def main():
     if os.path.isfile(sddm_conf):
         run(["sudo", "sed", "-i", f"/^User=/s//User={user}/", sddm_conf], check=False)
 
+    progress("Thunar")
     uca_src = os.path.join(usb, "dots", "uca.xml")
     uca_restored = "no"
     if os.path.isfile(uca_src):
-        run(["rsync", "-Prah", uca_src, os.path.join(user_home, ".config", "Thunar")])
+        run(["rsync", "-arh", "--quiet", uca_src, os.path.join(user_home, ".config", "Thunar")])
         uca_restored = "yes"
 
     restored_dirs = []
+    progress("User directories")
     for d in dirs:
         src = os.path.join(usb, "home", d)
         if os.path.exists(src):
-            run(["rsync", "-Prah", src, user_home])
+            run(["rsync", "-arh", "--quiet", src, user_home])
             restored_dirs.append(d)
 
     cursor_restored = "no"
+    progress("Icons and themes")
     cursor_src = os.path.join(usb, "home", "LyraX-cursors")
     if os.path.isdir(cursor_src):
-        run(["rsync", "-Prah", cursor_src, os.path.join(user_home, ".local", "share", "icons")])
+        run(["rsync", "-arh", "--quiet", cursor_src, os.path.join(user_home, ".local", "share", "icons")])
         cursor_restored = "yes"
 
     icons_restored = "no"
     themes_restored = "no"
-    if run(["rsync", "-Prah", os.path.join(usb, "home", ".icons"), user_home], check=False).returncode == 0:
+    if run(["rsync", "-arh", "--quiet", os.path.join(usb, "home", ".icons"), user_home], check=False).returncode == 0:
         icons_restored = "yes"
-    if run(["rsync", "-Prah", os.path.join(usb, "home", ".themes"), user_home], check=False).returncode == 0:
+    if run(["rsync", "-arh", "--quiet", os.path.join(usb, "home", ".themes"), user_home], check=False).returncode == 0:
         themes_restored = "yes"
 
     dots_restored = "no"
-    if run(["rsync", "-Prah", f"{os.path.join(usb, 'dots')}/", user_home], check=False).returncode == 0:
+    progress("Dotfiles")
+    if run(["rsync", "-arh", "--quiet", os.path.join(usb, "dots"), user_home], check=False).returncode == 0:
         dots_restored = "yes"
 
     fonts_installed = "no"
+    progress("Fonts")
     fonts_script = os.path.join(user_home, "Shared", "fonts", "install.sh")
     if os.path.isfile(fonts_script) and os.access(fonts_script, os.X_OK):
         if run(["bash", fonts_script], check=False).returncode == 0:
             fonts_installed = "yes"
     else:
-        print(f"Font install script not found or not executable: {fonts_script}")
+        err(f"Font install script not found or not executable: {fonts_script}")
 
     yay_installed = "no"
+    progress("Yay")
     if command_exists("pacman"):
         run(["sudo", "pacman", "-S", "--needed", "--noconfirm", "git", "base-devel"], check=False)
         yay_dir = os.path.join(user_home, "yay")
@@ -102,17 +146,11 @@ def main():
         if run(["sudo", "-u", user, "bash", "-lc", f"cd {yay_dir} && makepkg -si --noconfirm"], check=False).returncode == 0:
             yay_installed = "yes"
     else:
-        print("pacman not found; skipping yay install.")
+        err("pacman not found; skipping yay install.")
 
-    print("Main restore done.")
-    print(f"Restored directories: {' '.join(restored_dirs) if restored_dirs else 'none'}")
-    print(f"Dotfiles restored: {dots_restored}")
-    print(f"Thunar uca.xml restored: {uca_restored}")
-    print(f"Cursor pack restored: {cursor_restored}")
-    print(f".icons restored: {icons_restored}")
-    print(f".themes restored: {themes_restored}")
-    print(f"Fonts installed: {fonts_installed}")
-    print(f"Yay installed: {yay_installed}")
+    status("Restore done.")
+    if LOG_FH:
+        LOG_FH.close()
 
 
 if __name__ == "__main__":

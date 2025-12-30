@@ -13,22 +13,38 @@ BACKUP_DIR="$USER_HOME/.mydotfiles/restore-dots-backup-$(date +%Y%m%d%H%M%S)"
 RESTORED_ITEMS=()
 BACKED_UP_ITEMS=()
 
+TOTAL_STEPS=4
+STEP=0
+status() { printf '%s\n' "$*" >/dev/tty; }
+progress() {
+  STEP=$((STEP + 1))
+  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+}
+err() { printf '[!] %s\n' "$*" >/dev/tty; }
+
+LOG_FILE="/tmp/restore-dots-v2-$(date +%Y%m%d%H%M%S).log"
+exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+status "Restore dots start: $(date -Is)"
+status "Log: $LOG_FILE"
+
 if [[ ! -d "$SRC" ]]; then
-  echo "ERROR: source not found: $SRC"
+  err "ERROR: source not found: $SRC"
   exit 1
 fi
 if [[ ! -d "$DOTS" ]]; then
-  echo "ERROR: dotfiles config not found: $DOTS"
+  err "ERROR: dotfiles config not found: $DOTS"
   exit 1
 fi
 mkdir -p "$BACKUP_DIR"
 
 # Remove not needed apps (if flatpak exists)
+progress "Pre-flight"
 if command -v flatpak >/dev/null 2>&1; then
   flatpak uninstall -y com.github.PintaProject.Pinta com.ml4w.calendar || true
 fi
 
 # Restore hyprctl settings
+progress "Core settings"
 mkdir -p "$USER_HOME/.config/com.ml4w.hyprlandsettings"
 if [[ -f "$SRC/hyprctl.json" ]]; then
   cp -f "$SRC/hyprctl.json" "$USER_HOME/.config/com.ml4w.hyprlandsettings/hyprctl.json"
@@ -64,6 +80,7 @@ if [[ -f "$DOTS/hypr/hyprlock.conf" ]]; then
 fi
 
 # Hyprland configuration
+progress "Hyprland config"
 mkdir -p "$HYPR/environments" "$HYPR/animations" "$HYPR/decorations" "$HYPR/layouts" "$HYPR/monitors" "$HYPR/windows"
 echo 'env = AQ_DRM_DEVICES,/dev/dri/card1:/dev/dri/card2' >> "$HYPR/environments/nvidia.conf"
 RESTORED_ITEMS+=("hypr/environments/nvidia.conf")
@@ -119,6 +136,7 @@ if [[ -d "$SRC/matugen" ]]; then
 fi
 
 # Waybar
+progress "Apps and themes"
 if [[ -d "$SRC/waybar/themes/lateralus" ]]; then
   mkdir -p "$DOTS/waybar/themes"
   if [[ -d "$DOTS/waybar/themes/lateralus" ]]; then
@@ -259,7 +277,4 @@ if [[ -d "$SRC/ohmyposh" ]]; then
   RESTORED_ITEMS+=("ohmyposh")
 fi
 
-echo "Restore dots done."
-echo "Backups saved to: $BACKUP_DIR"
-echo "Backed up items: ${BACKED_UP_ITEMS[*]:-none}"
-echo "Restored items: ${RESTORED_ITEMS[*]:-none}"
+status "Restore dots done."
