@@ -2,7 +2,6 @@
 import datetime
 import getpass
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -85,82 +84,21 @@ def run_rsync_allow_partial(cmd, live_preview=False):
     return rc
 
 
-def list_mounts():
-    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
-    proc = subprocess.run(
-        ["lsblk", "-P", "-o", "NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        err("Failed to list devices with lsblk.")
-        sys.exit(1)
-    mounts = []
-    for line in proc.stdout.splitlines():
-        info = {}
-        for token in shlex.split(line):
-            key, val = token.split("=", 1)
-            info[key] = val
-        if info.get("TYPE") != "part":
-            continue
-        mountpoint = info.get("MOUNTPOINT") or ""
-        if not mountpoint:
-            continue
-        if not (
-            mountpoint.startswith(f"/run/media/{user}/")
-            or mountpoint.startswith(f"/media/{user}/")
-        ):
-            continue
-        mounts.append(info)
-    return mounts
-
-
-def select_target():
-    mounts = list_mounts()
-    if not mounts:
-        err("No mounted external devices found under /run/media or /media.")
-        sys.exit(1)
-    print("Select target device:")
-    for i, m in enumerate(mounts, 1):
-        desc = f"{m['MOUNTPOINT']} ({m.get('NAME','?')}, {m.get('SIZE','?')}, {m.get('TRAN','?')}, {m.get('MODEL','unknown')})"
-        print(f"  {i}) {desc}")
-    choice = input("Enter number: ").strip()
-    if not choice.isdigit() or not (1 <= int(choice) <= len(mounts)):
-        err("Invalid selection.")
-        sys.exit(1)
-    mountpoint = mounts[int(choice) - 1]["MOUNTPOINT"]
-    return mountpoint
-
-
 def main():
     status("-" * 92)
 
     ts = datetime.datetime.now().strftime("%j-%Y-%H%M")
-    mountpoint = select_target()
-
-    create_dir = input(f"Create timestamped directory under {mountpoint}? [y/N]: ").strip()
-    if create_dir.lower() == "y":
-        bkp_base = os.path.join(mountpoint, ts)
-        os.makedirs(bkp_base, exist_ok=True)
-        created = "yes"
-    else:
-        bkp_base = mountpoint
-        created = "no"
-
-    print(f"Target: {bkp_base}")
-    confirm = input("Proceed with backup? [y/N]: ").strip()
-    if confirm.lower() != "y":
-        status("Cancelled.")
-        return
+    bkp_base = "/home/ralexander/Shared/ArchBKP"
+    create_archive = input("Create compressed archive? [y/N]: ").strip()
 
     bkp_folder = os.path.join(bkp_base, ts)
     bkp_tar = os.path.join(bkp_base, f"{ts}.tar.gz")
-    log_file = os.path.join(bkp_folder, "backup.log")
+    log_file = os.path.join(bkp_base, f"backup-rsync-{ts}.log")
     root_dir = os.path.join(bkp_folder, "root")
     home_dir = os.path.join(bkp_folder, "home")
     user = getpass.getuser()
 
+    os.makedirs(bkp_base, exist_ok=True)
     os.makedirs(bkp_folder, exist_ok=True)
     os.makedirs(root_dir, exist_ok=True)
     os.makedirs(home_dir, exist_ok=True)
@@ -171,7 +109,7 @@ def main():
         try:
             status(f"Backup start: {datetime.datetime.now().isoformat()}")
             status(f"Log: {log_file}")
-            status(f"Target: {bkp_base} (new dir: {created})")
+            status(f"Target: {bkp_base}")
 
             for cmd in ["rsync", "tar", "sudo"]:
                 require_command(cmd)
@@ -188,12 +126,6 @@ def main():
                     sys.exit(1)
             else:
                 log("pigz already installed, continuing...")
-
-            if not command_exists("mountpoint") or subprocess.run(
-                ["mountpoint", "-q", mountpoint]
-            ).returncode != 0:
-                err(f"ERROR: {mountpoint} is not a mountpoint.")
-                sys.exit(1)
 
             if not os.access(bkp_base, os.W_OK):
                 err(f"Backup base not writable: {bkp_base}")
@@ -271,10 +203,17 @@ def main():
                 log(f"Skipping missing {ssh_dir}")
 
             progress("Archive")
-            log(f"Compressing backup to {bkp_tar} ...")
-            run(["tar", "--ignore-failed-read", "-I", "pigz", "-cf", bkp_tar, "-C", bkp_base, ts], live_preview=True)
+            if create_archive.lower() == "y":
+                log(f"Compressing backup to {bkp_tar} ...")
+                run(["tar", "--ignore-failed-read", "-I", "pigz", "-cf", bkp_tar, "-C", bkp_base, ts], live_preview=True)
+                archive_status = bkp_tar
+            else:
+                archive_status = "skipped"
 
-            status(f"Backup done: {bkp_tar}")
+            status("Backup done.")
+            status(f"Target: {bkp_base}")
+            status(f"Archive: {archive_status}")
+            status(f"Log: {log_file}")
         except Exception:
             if os.path.exists(bkp_tar):
                 log(f"Removing partial archive: {bkp_tar}")

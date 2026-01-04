@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#!/usr/bin/env bash
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -26,6 +25,24 @@ rsync_allow_partial() {
     echo "[!] rsync completed with partial transfer (code $rc). Continuing."
   fi
   return 0
+}
+
+prune_old() {
+  local pattern="$1"
+  local keep="${2:-3}"
+  local -a items=()
+  local i=0
+  shopt -s nullglob
+  items=( $pattern )
+  shopt -u nullglob
+  if (( ${#items[@]} <= keep )); then
+    return 0
+  fi
+  IFS=$'\n' read -r -d '' -a items < <(printf '%s\0' "${items[@]}" | xargs -0 ls -1dt -- 2>/dev/null)
+  for (( i=keep; i<${#items[@]}; i++ )); do
+    echo "Pruning old backup: ${items[$i]}"
+    rm -rf -- "${items[$i]}"
+  done
 }
 
 select_mountpoint() {
@@ -62,6 +79,15 @@ select_mountpoint() {
   fi
   SELECTED_MOUNT="${mounts[$((choice - 1))]}"
 }
+
+LOCK_DIR="/tmp/backup-full-ssd-v3"
+LOCK_FILE="$LOCK_DIR/backup-full-ssd.lock"
+mkdir -p "$LOCK_DIR"
+if ! ( set -o noclobber; echo "$$" > "$LOCK_FILE" ) 2>/dev/null; then
+  err "Backup already running (lock: $LOCK_FILE)"
+  exit 1
+fi
+trap 'rm -f "$LOCK_FILE"' EXIT
 
 TS=$(date '+%j-%Y-%H%M')
 select_mountpoint
@@ -117,15 +143,17 @@ if [[ ! -w "$BASE_DIR" ]]; then
   exit 1
 fi
 
-MIN_FREE_GB=20
-FREE_GB=$(df -P -BG "$SELECTED_MOUNT" | awk 'NR==2 {gsub(/G/,"",$4); print $4}')
-if [[ -n "$FREE_GB" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
+BKP_MIN_FREE_GB="${BKP_MIN_FREE_GB:-20}"
+MIN_FREE_GB="$BKP_MIN_FREE_GB"
+FREE_BYTES=$(df -P -B1 "$SELECTED_MOUNT" | awk 'NR==2 {print $4}')
+FREE_GB=$(( FREE_BYTES / 1024 / 1024 / 1024 ))
+if [[ -n "$FREE_BYTES" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
   err "Not enough free space on $SELECTED_MOUNT: ${FREE_GB}G available, need ${MIN_FREE_GB}G"
   exit 1
 fi
 
 mkdir -p "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR" "$LOG_DIR"
-exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+exec >>"$LOG_FILE" 2>&1
 status "Backup start: $(date -Is)"
 status "Log: $LOG_FILE"
 status "Target: $BASE_DIR (new dir: $CREATED_DIR)"
@@ -160,7 +188,7 @@ fi
 # LUKS header backup
 ########################################
 LUKS_HEADER_FILE="$BKP_BASE/luks-header-$TS.img"
-LUKS_DEVICE="/dev/nvme0n1p2"
+LUKS_DEVICE="${BKP_LUKS_DEVICE:-/dev/nvme0n1p2}"
 
 if [[ -b "$LUKS_DEVICE" ]]; then
   echo "Backing up LUKS header of $LUKS_DEVICE to: $LUKS_HEADER_FILE"
@@ -190,7 +218,7 @@ for src in "${SYSTEM_PATHS[@]}"; do
     continue
   fi
   echo "Backing up $src..."
-  sudo rsync -aR --quiet "$src" "$ROOT_DIR/"
+  sudo rsync -a --quiet "$src" "$ROOT_DIR/"
 done
 
 ##### User files
@@ -204,7 +232,7 @@ rsync_allow_partial -aAX --quiet --partial --partial-dir=.rsync-partial \
   --exclude=".local/share/fonts/" \
   --exclude=".vscode-oss/" \
   --exclude="Trash/" \
-  "$SRC_HOME/" "$HOME_DIR/$(basename "$SRC_HOME")/"
+  "$SRC_HOME/" "$HOME_DIR/"
 
 progress "Archive"
 echo "Compressing full backup to: $ARCHIVE_FILE"
@@ -212,6 +240,10 @@ tar --ignore-failed-read -I pigz -cf "$ARCHIVE_FILE" -C "$BKP_BASE" "$TS"
 echo "Archive checksum:"
 sha256sum "$ARCHIVE_FILE"
 
-echo "Bully complete."
+prune_old "$BKP_BASE/full-backup-*.tar.gz" 3
+prune_old "$BKP_BASE/[0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]" 3
 
-status "Backup done: $ARCHIVE_FILE"
+status "Backup done."
+status "Target: $BASE_DIR"
+status "Archive: $ARCHIVE_FILE"
+status "Log: $LOG_FILE"

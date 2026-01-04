@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import datetime
 import getpass
+import glob
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -40,6 +42,11 @@ def err(msg):
         LOG_FH.flush()
 
 
+def summary(msg):
+    print(msg)
+    log(msg)
+
+
 def run(cmd, check=True):
     if QUIET and LOG_FH:
         return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
@@ -57,6 +64,14 @@ def run_rsync_allow_partial(cmd):
 
 def command_exists(cmd):
     return shutil.which(cmd) is not None
+
+
+def make_executable(path):
+    try:
+        mode = os.stat(path).st_mode
+        os.chmod(path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    except OSError:
+        pass
 
 
 def list_mounts():
@@ -114,16 +129,19 @@ def main():
     ts = datetime.datetime.now().strftime("%j-%Y-%H%M")
     mountpoint = select_target()
 
-    create_dir = input(f"Create timestamped directory under {mountpoint}? [y/N]: ").strip()
+    base_root = os.path.join(mountpoint, "START")
+    os.makedirs(base_root, exist_ok=True)
+
+    create_dir = input(f"Create timestamped directory under {base_root}? [y/N]: ").strip()
     if create_dir.lower() == "y":
-        usb = os.path.join(mountpoint, ts)
+        usb = os.path.join(base_root, ts)
         os.makedirs(usb, exist_ok=True)
         created = "yes"
     else:
-        usb = mountpoint
+        usb = base_root
         created = "no"
 
-    print(f"Target: {usb}")
+    status(f"Target: {usb}")
     confirm = input("Proceed with backup? [y/N]: ").strip()
     if confirm.lower() != "y":
         status("Cancelled.")
@@ -162,6 +180,10 @@ def main():
             err(f"Missing required command: {cmd}")
             sys.exit(1)
 
+    if not os.access(base_root, os.W_OK):
+        err(f"Backup root not writable: {base_root}")
+        sys.exit(1)
+
     os.makedirs(os.path.join(usb, "home"), exist_ok=True)
     os.makedirs(os.path.join(usb, "dots"), exist_ok=True)
     os.makedirs(os.path.join(srv, "grub"), exist_ok=True)
@@ -170,6 +192,9 @@ def main():
     log_dir = os.path.join(usb, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"backup-usb-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log")
+
+    for script in glob.glob("*.sh"):
+        make_executable(script)
 
     global LOG_FH
     LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
@@ -261,11 +286,23 @@ def main():
             log(f"Backing up {src}...")
             run(["sudo", "rsync", "-a", "--quiet", src, dest])
 
-        status("Backup done.")
+        summary("Backup done.")
+        summary(f"Target: {usb}")
+        summary(f"Log: {log_path}")
     finally:
         if LOG_FH:
             LOG_FH.close()
 
 
 if __name__ == "__main__":
-    main()
+    lock_file = None
+    try:
+        lock_dir = os.path.join("/tmp", "backup-usb-v3")
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_file = os.path.join(lock_dir, "backup-usb.lock")
+        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        main()
+    finally:
+        if lock_file and os.path.exists(lock_file):
+            os.remove(lock_file)

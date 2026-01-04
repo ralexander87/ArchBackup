@@ -83,16 +83,56 @@ def regex_replace_in_file(path, pattern, repl):
         return False
 
 
-def main():
-    log_path = f"/tmp/restore-dots-v2-{datetime.now().strftime('%Y%m%d%H%M%S')}.log"
-    global LOG_FH
-    LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
+def resolve_backup_root(base_root, required):
+    def has_required(path):
+        return all(os.path.exists(os.path.join(path, name)) for name in required)
+    if has_required(base_root):
+        return base_root
+    try:
+        candidates = [
+            os.path.join(base_root, name)
+            for name in os.listdir(base_root)
+            if os.path.isdir(os.path.join(base_root, name))
+        ]
+    except OSError:
+        return None
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    for candidate in candidates:
+        if has_required(candidate):
+            return candidate
+    return None
 
+
+def main():
     run_as_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
     user_home = os.path.expanduser(f"~{run_as_user}")
-    src = os.path.join(user_home, "dots")
+    usb_label = os.environ.get("BKP_USB_LABEL", "netac")
+    usb_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or run_as_user
+    usb_mount = f"/run/media/{usb_user}/{usb_label}"
+    base_root = os.path.join(usb_mount, "START")
+    if not command_exists("mountpoint"):
+        err("ERROR: mountpoint not found.")
+        sys.exit(1)
+    if run(["mountpoint", "-q", usb_mount], check=False).returncode != 0:
+        err(f"ERROR: {usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
+        sys.exit(1)
+    backup_root = resolve_backup_root(base_root, ["dots"])
+    if not backup_root:
+        print(f"ERROR: backup root not found under {base_root}", file=sys.stderr)
+        sys.exit(1)
+    src = os.path.join(backup_root, "dots")
     dots = os.path.join(user_home, ".mydotfiles", "com.ml4w.dotfiles.stable", ".config")
     hypr = os.path.join(dots, "hypr", "conf")
+
+    log_dir = os.path.join(backup_root, "logs")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, f"restore-dots-{datetime.now().strftime('%Y%m%d%H%M%S')}.log")
+        global LOG_FH
+        LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(f"ERROR: unable to open log file in {log_dir}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     status(f"Restore dots start: {datetime.now().isoformat()}")
     status(f"Log: {log_path}")
@@ -128,7 +168,10 @@ def main():
     kb_src = os.path.join(src, "hypr", "conf", "keybindings", "lateralus.conf")
     if os.path.isfile(kb_src):
         shutil.copy2(kb_src, os.path.join(hypr, "keybindings", "lateralus.conf"))
-        with open(os.path.join(hypr, "keybinding.conf"), "w", encoding="utf-8") as fh:
+        keybinding_conf = os.path.join(hypr, "keybinding.conf")
+        if os.path.isfile(keybinding_conf):
+            backed_up_items.append(backup_path(keybinding_conf, backup_dir, "keybinding.conf"))
+        with open(keybinding_conf, "w", encoding="utf-8") as fh:
             fh.write("source = ~/.config/hypr/conf/keybindings/lateralus.conf\n")
         restored_items.append("hypr/keybindings/lateralus.conf")
 
@@ -291,6 +334,8 @@ def main():
             restored_items.append(name)
 
     status("Restore dots done.")
+    status(f"Target: {backup_root}")
+    status(f"Log: {log_path}")
     if LOG_FH:
         LOG_FH.close()
 

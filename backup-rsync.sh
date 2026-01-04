@@ -27,66 +27,14 @@ rsync_allow_partial() {
   return 0
 }
 
-select_mountpoint() {
-  local user="${SUDO_USER:-$USER}"
-  local -a mounts=()
-  local -a descs=()
-  local line
-  while read -r line; do
-    eval "$line"
-    [[ "${TYPE:-}" != "part" ]] && continue
-    [[ -z "${MOUNTPOINT:-}" ]] && continue
-    if [[ "$MOUNTPOINT" != "/run/media/$user/"* && "$MOUNTPOINT" != "/media/$user/"* ]]; then
-      continue
-    fi
-    mounts+=("$MOUNTPOINT")
-    descs+=("$MOUNTPOINT ($NAME, ${SIZE:-?}, ${TRAN:-?}, ${MODEL:-unknown})")
-  done < <(lsblk -P -o NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE)
-
-  if (( ${#mounts[@]} == 0 )); then
-    err "No mounted external devices found under /run/media/$user or /media/$user."
-    exit 1
-  fi
-
-  printf 'Select target device:\n' >/dev/tty
-  local i
-  for i in "${!mounts[@]}"; do
-    printf '  %d) %s\n' $((i + 1)) "${descs[$i]}" >/dev/tty
-  done
-  printf 'Enter number: ' >/dev/tty
-  read -r choice
-  if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#mounts[@]} )); then
-    err "Invalid selection."
-    exit 1
-  fi
-  SELECTED_MOUNT="${mounts[$((choice - 1))]}"
-}
-
 TS=$(date '+%j-%Y-%H%M')
-select_mountpoint
-
-printf 'Create timestamped directory under %s? [y/N]: ' "$SELECTED_MOUNT" >/dev/tty
-read -r create_dir
-if [[ "$create_dir" =~ ^[Yy]$ ]]; then
-  BKP_BASE="$SELECTED_MOUNT/$TS"
-  mkdir -p "$BKP_BASE"
-  CREATED_DIR="yes"
-else
-  BKP_BASE="$SELECTED_MOUNT"
-  CREATED_DIR="no"
-fi
-
-printf 'Target: %s\n' "$BKP_BASE" >/dev/tty
-printf 'Proceed with backup? [y/N]: ' >/dev/tty
-read -r confirm
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-  status "Cancelled."
-  exit 0
-fi
+BKP_BASE="/home/ralexander/Shared/ArchBKP"
+printf 'Create compressed archive? [y/N]: ' >/dev/tty
+read -r CREATE_ARCHIVE
 
 BKP_FOLDER="$BKP_BASE/$TS"
 BKP_TAR="$BKP_BASE/$TS.tar.gz"
-LOG_FILE="$BKP_FOLDER/backup.log"
+LOG_FILE="$BKP_BASE/backup-rsync-$TS.log"
 ROOT_DIR="$BKP_FOLDER/root"
 HOME_DIR="$BKP_FOLDER/home"
 
@@ -116,11 +64,11 @@ else
 fi
 
 ### Start BKP
-mkdir -p "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR"
-exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+mkdir -p "$BKP_BASE" "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR"
+exec >>"$LOG_FILE" 2>&1
 status "Backup start: $(date -Is)"
 status "Log: $LOG_FILE"
-status "Target: $BKP_BASE (new dir: $CREATED_DIR)"
+status "Target: $BKP_BASE"
 
 ##### Prereqs
 REQUIRED_CMDS=(rsync tar sudo)
@@ -130,11 +78,6 @@ for cmd in "${REQUIRED_CMDS[@]}"; do
     exit 1
   fi
 done
-
-if ! mountpoint -q "$SELECTED_MOUNT"; then
-  err "ERROR: $SELECTED_MOUNT is not a mountpoint."
-  exit 1
-fi
 
 if [[ ! -w "$BKP_BASE" ]]; then
   err "Backup base not writable: $BKP_BASE"
@@ -214,12 +157,15 @@ fi
 
 ##### Start bully the backup
 progress "Archive"
-echo "Compressing backup to $BKP_TAR ..."
-tar --ignore-failed-read -I pigz -cf "$BKP_TAR" -C "$BKP_BASE" "$TS"
+if [[ "$CREATE_ARCHIVE" =~ ^[Yy]$ ]]; then
+  echo "Compressing backup to $BKP_TAR ..."
+  tar --ignore-failed-read -I pigz -cf "$BKP_TAR" -C "$BKP_BASE" "$TS"
+  ARCHIVE_STATUS="$BKP_TAR"
+else
+  ARCHIVE_STATUS="skipped"
+fi
 
-echo "Bully complete."
-echo "Uncompressed folder: $BKP_FOLDER"
-echo "Compressed archive : $BKP_TAR"
-du -sh "$BKP_FOLDER" "$BKP_TAR"
-echo "Backup end: $(date -Is)"
-status "Backup done: $BKP_TAR"
+status "Backup done."
+status "Target: $BKP_BASE"
+status "Archive: $ARCHIVE_STATUS"
+status "Log: $LOG_FILE"

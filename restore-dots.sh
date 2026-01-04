@@ -4,9 +4,56 @@ IFS=$'\n\t'
 
 # Restore dotfile configs from ~/dots into your active dotfiles tree.
 
+USB_LABEL="${BKP_USB_LABEL:-netac}"
+USB_USER="${SUDO_USER:-$USER}"
+USB_MOUNT="/run/media/$USB_USER/$USB_LABEL"
+USB_BASE="$USB_MOUNT/START"
+resolve_backup_root() {
+  local base="$1"
+  shift
+  local root=""
+  local ok=0
+  for root in "$base"; do
+    ok=1
+    for req in "$@"; do
+      [[ -e "$root/$req" ]] || ok=0
+    done
+    if (( ok )); then
+      printf '%s\n' "$root"
+      return 0
+    fi
+  done
+  local candidate
+  candidate=$(ls -1dt "$base"/*/ 2>/dev/null | head -n1)
+  candidate="${candidate%/}"
+  if [[ -n "$candidate" ]]; then
+    ok=1
+    for req in "$@"; do
+      [[ -e "$candidate/$req" ]] || ok=0
+    done
+    if (( ok )); then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+  return 1
+}
+if ! command -v mountpoint >/dev/null 2>&1; then
+  err "ERROR: mountpoint not found."
+  exit 1
+fi
+if ! mountpoint -q "$USB_MOUNT"; then
+  err "ERROR: $USB_MOUNT is not a mountpoint. Is the USB plugged in and mounted?"
+  exit 1
+fi
 RUN_AS_USER="${SUDO_USER:-$USER}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
-SRC="$USER_HOME/dots"
+BACKUP_ROOT="$(resolve_backup_root "$USB_BASE" dots || true)"
+if [[ -z "$BACKUP_ROOT" ]]; then
+  err "ERROR: backup root not found under $USB_BASE"
+  exit 1
+fi
+SRC="$BACKUP_ROOT/dots"
 DOTS="$USER_HOME/.mydotfiles/com.ml4w.dotfiles.stable/.config"
 HYPR="$DOTS/hypr/conf"
 BACKUP_DIR="$USER_HOME/.mydotfiles/restore-dots-backup-$(date +%Y%m%d%H%M%S)"
@@ -22,7 +69,9 @@ progress() {
 }
 err() { printf '[!] %s\n' "$*" >/dev/tty; }
 
-LOG_FILE="/tmp/restore-dots-v2-$(date +%Y%m%d%H%M%S).log"
+LOG_DIR="$BACKUP_ROOT/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/restore-dots-$(date +%Y%m%d%H%M%S).log"
 exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
 status "Restore dots start: $(date -Is)"
 status "Log: $LOG_FILE"
@@ -54,6 +103,10 @@ fi
 mkdir -p "$HYPR/keybindings"
 if [[ -f "$SRC/hypr/conf/keybindings/lateralus.conf" ]]; then
   cp -f "$SRC/hypr/conf/keybindings/lateralus.conf" "$HYPR/keybindings/"
+  if [[ -f "$HYPR/keybinding.conf" ]]; then
+    cp -a "$HYPR/keybinding.conf" "$BACKUP_DIR/keybinding.conf"
+    BACKED_UP_ITEMS+=("hypr/keybinding.conf")
+  fi
   echo 'source = ~/.config/hypr/conf/keybindings/lateralus.conf' > "$HYPR/keybinding.conf"
 fi
 
@@ -62,7 +115,8 @@ if [[ -e "$DOTS/ml4w/wallpapers" ]]; then
   mv "$DOTS/ml4w/wallpapers" "$BACKUP_DIR/wallpapers" 2>/dev/null || rm -rf "$DOTS/ml4w/wallpapers"
   BACKED_UP_ITEMS+=("ml4w/wallpapers")
 fi
-ln -s "$USER_HOME/Pictures/wallpapers" "$DOTS/ml4w"
+mkdir -p "$DOTS/ml4w"
+ln -s "$USER_HOME/Pictures/wallpapers" "$DOTS/ml4w/wallpapers"
 RESTORED_ITEMS+=("ml4w/wallpapers -> ~/Pictures/wallpapers")
 
 # Update hypridle configuration
@@ -278,3 +332,5 @@ if [[ -d "$SRC/ohmyposh" ]]; then
 fi
 
 status "Restore dots done."
+status "Target: $BACKUP_ROOT"
+status "Log: $LOG_FILE"

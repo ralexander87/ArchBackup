@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 IFS=$'\n\t'
+umask 077
 
 echo "------------------------------------------------------------------------------------"
 # Notes:
@@ -11,12 +12,20 @@ echo "--------------------------------------------------------------------------
 
 TOTAL_STEPS=5
 STEP=0
-status() { printf '%s\n' "$*" >/dev/tty; }
+log_line() {
+  if [[ -n "${LOG_FILE:-}" ]]; then
+    printf '%s\n' "$*" >>"$LOG_FILE"
+  fi
+}
+status() { printf '%s\n' "$*" >/dev/tty; log_line "$*"; }
 progress() {
   STEP=$((STEP + 1))
   printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+  log_line "[$STEP/$TOTAL_STEPS] $*"
 }
-err() { printf '[!] %s\n' "$*" >/dev/tty; }
+err() { printf '[!] %s\n' "$*" >/dev/tty; log_line "[!] $*"; }
+trap 'err "Backup failed."' ERR
+summary() { printf '%s\n' "$*" >/dev/tty; }
 
 rsync_allow_partial() {
   set +e
@@ -67,21 +76,32 @@ select_mountpoint() {
   SELECTED_MOUNT="${mounts[$((choice - 1))]}"
 }
 
+LOCK_DIR="/tmp/backup-usb-v3"
+LOCK_FILE="$LOCK_DIR/backup-usb.lock"
+mkdir -p "$LOCK_DIR"
+if ! ( set -o noclobber; echo "$$" > "$LOCK_FILE" ) 2>/dev/null; then
+  err "Backup already running (lock: $LOCK_FILE)"
+  exit 1
+fi
+trap 'rm -f "$LOCK_FILE"' EXIT
+
 TS=$(date '+%j-%Y-%H%M')
 select_mountpoint
 
-printf 'Create timestamped directory under %s? [y/N]: ' "$SELECTED_MOUNT" >/dev/tty
+BASE_ROOT="$SELECTED_MOUNT/START"
+mkdir -p "$BASE_ROOT"
+
+printf 'Create timestamped directory under %s? [y/N]: ' "$BASE_ROOT" >/dev/tty
 read -r create_dir
 if [[ "$create_dir" =~ ^[Yy]$ ]]; then
-  USB="$SELECTED_MOUNT/$TS"
+  USB="$BASE_ROOT/$TS"
   mkdir -p "$USB"
   CREATED_DIR="yes"
 else
-  USB="$SELECTED_MOUNT"
+  USB="$BASE_ROOT"
   CREATED_DIR="no"
 fi
 
-printf 'Target: %s\n' "$USB" >/dev/tty
 printf 'Proceed with backup? [y/N]: ' >/dev/tty
 read -r confirm
 if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
@@ -106,11 +126,24 @@ if ! mountpoint -q "$SELECTED_MOUNT"; then
   exit 1
 fi
 
+if [[ ! -w "$BASE_ROOT" ]]; then
+  err "Backup root not writable: $BASE_ROOT"
+  exit 1
+fi
+
+MIN_FREE_GB="${BKP_MIN_FREE_GB:-20}"
+FREE_BYTES=$(df -P -B1 "$SELECTED_MOUNT" | awk 'NR==2 {print $4}')
+FREE_GB=$(( FREE_BYTES / 1024 / 1024 / 1024 ))
+if [[ -n "$FREE_BYTES" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
+  err "Not enough free space on $SELECTED_MOUNT: ${FREE_GB}G available, need ${MIN_FREE_GB}G"
+  exit 1
+fi
+
 LOG_TS=$(date '+%Y%m%d%H%M%S')
 LOG_DIR="$USB/logs"
 LOG_FILE="$LOG_DIR/backup-usb-$LOG_TS.log"
 mkdir -p "$LOG_DIR"
-exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
+exec >>"$LOG_FILE" 2>&1
 status "Backup start: $(date -Is)"
 status "Log: $LOG_FILE"
 status "Target: $USB (new dir: $CREATED_DIR)"
@@ -119,7 +152,7 @@ status "Target: $USB (new dir: $CREATED_DIR)"
 mkdir -p "$USB"/{home,dots,Srv/{grub,ssh,samba}}
 
 # Make local scripts executable (ignore if path missing)
-chmod +x *.sh "$HOME/Working/bash" 2>/dev/null || true
+chmod +x *.sh 2>/dev/null || true
 
 progress "Pre-flight checks"
 
@@ -197,4 +230,6 @@ for src in "${!SYSTEM_PATHS[@]}"; do
   sudo rsync -a --quiet "$src" "${SYSTEM_PATHS[$src]}"
 done
 
-status "Backup done."
+summary "Backup done."
+summary "Target: $USB"
+summary "Log: $LOG_FILE"

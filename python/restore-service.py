@@ -60,6 +60,24 @@ def ensure_root():
         script = os.path.abspath(sys.argv[0])
         os.execvp("sudo", ["sudo", "-E", sys.executable, script] + sys.argv[1:])
 
+def resolve_backup_root(base_root, required):
+    def has_required(path):
+        return all(os.path.exists(os.path.join(path, name)) for name in required)
+    if has_required(base_root):
+        return base_root
+    try:
+        candidates = [
+            os.path.join(base_root, name)
+            for name in os.listdir(base_root)
+            if os.path.isdir(os.path.join(base_root, name))
+        ]
+    except OSError:
+        return None
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    for candidate in candidates:
+        if has_required(candidate):
+            return candidate
+    return None
 
 def main():
     ensure_root()
@@ -70,7 +88,19 @@ def main():
 
     usb_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or run_as_user
     usb_label = os.environ.get("BKP_USB_LABEL", "netac")
-    srv = os.environ.get("SRV") or f"/run/media/{usb_user}/{usb_label}/Srv"
+    usb_mount = f"/run/media/{usb_user}/{usb_label}"
+    base_root = os.path.join(usb_mount, "START")
+    if not command_exists("mountpoint"):
+        err("mountpoint not found.")
+        raise SystemExit(1)
+    if run(["mountpoint", "-q", usb_mount], check=False).returncode != 0:
+        err(f"{usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
+        raise SystemExit(1)
+    backup_root = resolve_backup_root(base_root, ["Srv"])
+    if not backup_root:
+        err(f"Backup root not found under {base_root}")
+        raise SystemExit(1)
+    srv = os.path.join(backup_root, "Srv")
 
     smb_root = "/SMB"
     smb_subdirs = ["euclid", "pneuma", "SCP"]
@@ -96,16 +126,15 @@ def main():
     ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     backup_dir = f"/var/backups/restore-serv-{ts}"
     os.makedirs(backup_dir, exist_ok=True)
-    log_dir = os.path.join(srv, "logs")
+    log_dir = os.path.join(backup_root, "logs")
     try:
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, f"restore-serv-{ts}.log")
         global LOG_FH
         LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-    except OSError:
-        log_path = f"/tmp/restore-serv-{ts}.log"
-        LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-        err(f"[!] USB log path unavailable, using {log_path}")
+    except OSError as exc:
+        print(f"ERROR: unable to open log file in {log_dir}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     status(f"Restore start: {datetime.datetime.now().isoformat()}")
     status(f"Log: {log_path}")
     progress("Kernel module")
@@ -224,6 +253,9 @@ def main():
         log("----")
 
     status("[*] Restore services done.")
+    target_root = backup_root or os.path.dirname(srv.rstrip("/"))
+    status(f"Target: {target_root}")
+    status(f"Log: {log_path}")
     if LOG_FH:
         LOG_FH.close()
 

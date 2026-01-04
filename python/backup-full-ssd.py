@@ -277,7 +277,7 @@ def main():
                     log(f"Skipping missing {src}")
                     continue
                 log(f"Backing up {src}...")
-                run(["sudo", "rsync", "-aR", "--quiet", src, root_dir], live_preview=True)
+                run(["sudo", "rsync", "-a", "--quiet", src, root_dir], live_preview=True)
 
             progress("User home")
             log(f"Backing up {src_home}...")
@@ -295,7 +295,7 @@ def main():
                 "--exclude=.vscode-oss/",
                 "--exclude=Trash/",
                 f"{src_home}/",
-                os.path.join(home_dir, os.path.basename(src_home)) + "/",
+                f"{home_dir}/",
             ]
             rsync_rc = run(rsync_cmd, live_preview=True, check=False)
             if rsync_rc not in (0, 23, 24):
@@ -312,7 +312,10 @@ def main():
             log("Archive checksum:")
             log(sha256_file(archive_file))
 
-            status(f"Backup done: {archive_file}")
+            status("Backup done.")
+            status(f"Target: {base_dir}")
+            status(f"Archive: {archive_file}")
+            status(f"Log: {log_file}")
 
             prune_old(os.path.join(bkp_base, "full-backup-*.tar.gz"), keep=3)
             prune_old(os.path.join(bkp_base, "[0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]"), keep=3)
