@@ -7,15 +7,14 @@ import sys
 import time
 
 
-LOG_FH = None
 QUIET = True
-TOTAL_STEPS = 7
+TOTAL_STEPS = 8
 STEP = 0
 
 
 def run(cmd, check=True):
-    if QUIET and LOG_FH:
-        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
+    if QUIET:
+        return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL)
     return subprocess.run(cmd, check=check)
 
 
@@ -23,15 +22,8 @@ def command_exists(cmd):
     return shutil.which(cmd) is not None
 
 
-def log(msg):
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
-
-
 def status(msg):
     print(msg)
-    log(msg)
 
 
 def progress(msg):
@@ -42,7 +34,9 @@ def progress(msg):
 
 def err(msg):
     print(msg, file=sys.stderr)
-    log(msg)
+
+def run_interactive(cmd, check=True):
+    return subprocess.run(cmd, check=check)
 
 def resolve_backup_root(base_root, required):
     def has_required(path):
@@ -64,6 +58,7 @@ def resolve_backup_root(base_root, required):
     return None
 
 def main():
+    # Fixed user + mount layout for this machine.
     user = "ralexander"
     usb_label = os.environ.get("BKP_USB_LABEL", "netac")
     usb_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or user
@@ -82,6 +77,7 @@ def main():
         err(f"ERROR: {usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
         sys.exit(1)
 
+    # Locate the backup root (supports direct START or newest subdir).
     usb = resolve_backup_root(base_root, ["home", "dots"])
     if not usb:
         err(f"ERROR: backup root not found under {base_root}")
@@ -98,27 +94,19 @@ def main():
         err(f"ERROR: {srv} does not exist")
         sys.exit(1)
 
-    log_dir = os.path.join(usb, "logs")
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, f"restore-main-{time.strftime('%Y%m%d%H%M%S')}.log")
-        global LOG_FH
-        LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-    except OSError as exc:
-        print(f"ERROR: unable to open log file in {log_dir}: {exc}", file=sys.stderr)
-        sys.exit(1)
-
     status(f"Restore start: {time.strftime('%Y-%m-%dT%H:%M:%S')}")
-    status(f"Log: {log_path}")
     progress("Pre-flight checks")
 
+    # Local backup of overwritten configs.
     backup_dir = os.path.join(usb, "logs", "backups", f"restore-main-{time.strftime('%Y%m%d%H%M%S')}")
     os.makedirs(backup_dir, exist_ok=True)
 
+    # Ensure target directories exist before rsync/copy.
     os.makedirs(os.path.join(user_home, ".config", "Thunar"), exist_ok=True)
     os.makedirs(os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings"), exist_ok=True)
     os.makedirs(os.path.join(user_home, ".local", "share", "icons"), exist_ok=True)
 
+    # Backup and patch a few system/user configs.
     hypr_conf = os.path.join(user_home, ".config", "hypr", "hyprland.conf")
     if os.path.isfile(hypr_conf):
         run(["sudo", "cp", "-a", hypr_conf, os.path.join(backup_dir, "hyprland.conf")], check=False)
@@ -129,6 +117,7 @@ def main():
         run(["sudo", "cp", "-a", sddm_conf, os.path.join(backup_dir, "sddm.default.conf")], check=False)
         run(["sudo", "sed", "-i", f"/^User=/s//User={user}/", sddm_conf], check=False)
 
+    # Thunar custom actions.
     progress("Thunar")
     uca_src = os.path.join(usb, "dots", "uca.xml")
     uca_restored = "no"
@@ -136,6 +125,7 @@ def main():
         run(["rsync", "-arh", "--quiet", uca_src, os.path.join(user_home, ".config", "Thunar")])
         uca_restored = "yes"
 
+    # Restore main user folders.
     restored_dirs = []
     progress("User directories")
     for d in dirs:
@@ -144,6 +134,7 @@ def main():
             run(["rsync", "-arh", "--quiet", src, user_home])
             restored_dirs.append(d)
 
+    # Restore cursor, icons, and themes.
     cursor_restored = "no"
     progress("Icons and themes")
     cursor_src = os.path.join(usb, "home", "LyraX-cursors")
@@ -158,20 +149,25 @@ def main():
     if run(["rsync", "-arh", "--quiet", os.path.join(usb, "home", ".themes"), user_home], check=False).returncode == 0:
         themes_restored = "yes"
 
+    # Restore dotfiles to home.
     dots_restored = "no"
     progress("Dotfiles")
     if run(["rsync", "-arh", "--quiet", os.path.join(usb, "dots"), user_home], check=False).returncode == 0:
         dots_restored = "yes"
 
+    # Run fonts install script if present.
     fonts_installed = "no"
     progress("Fonts")
-    fonts_script = os.path.join(user_home, "Shared", "fonts", "install.sh")
+    fonts_script = os.path.join(usb_mount, "BIG", "fonts", "install.sh")
+    if not os.path.isfile(fonts_script):
+        fonts_script = os.path.join(user_home, "Shared", "fonts", "install.sh")
     if os.path.isfile(fonts_script) and os.access(fonts_script, os.X_OK):
         if run(["bash", fonts_script], check=False).returncode == 0:
             fonts_installed = "yes"
     else:
         err(f"Font install script not found or not executable: {fonts_script}")
 
+    # Install yay if needed (Arch only).
     yay_installed = "no"
     progress("Yay")
     if command_exists("pacman"):
@@ -184,11 +180,23 @@ def main():
     else:
         err("pacman not found; skipping yay install.")
 
+    # Install ML4W tool via Flatpak.
+    progress("ML4W Dotfiles Installer")
+    ml4w_installed = "no"
+    if run_interactive(["flatpak", "install", "flathub", "com.ml4w.dotfilesinstaller"], check=False).returncode == 0:
+        ml4w_installed = "yes"
+
     status("Restore done.")
+    status(f"UCA restored: {uca_restored}")
+    status(f"Dirs restored: {', '.join(restored_dirs) if restored_dirs else 'none'}")
+    status(f"Cursor restored: {cursor_restored}")
+    status(f"Icons restored: {icons_restored}")
+    status(f"Themes restored: {themes_restored}")
+    status(f"Dotfiles restored: {dots_restored}")
+    status(f"Fonts installed: {fonts_installed}")
+    status(f"Yay installed: {yay_installed}")
+    status(f"ML4W installed: {ml4w_installed}")
     status(f"Target: {usb}")
-    status(f"Log: {log_path}")
-    if LOG_FH:
-        LOG_FH.close()
 
 
 if __name__ == "__main__":

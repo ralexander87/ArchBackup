@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import datetime
-import getpass
 import os
 import pwd
 import shutil
@@ -8,23 +7,13 @@ import subprocess
 import sys
 
 
-LOG_FH = None
 QUIET = True
 TOTAL_STEPS = 4
 STEP = 0
 
 
-def log(msg):
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
-
-
 def status(msg):
     print(msg)
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 
 def progress(msg):
@@ -35,13 +24,13 @@ def progress(msg):
 
 def err(msg):
     print(msg, file=sys.stderr)
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 def run(cmd, check=True):
-    if QUIET and LOG_FH:
-        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
+    if QUIET:
+        return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL)
+    return subprocess.run(cmd, check=check)
+
+def run_interactive(cmd, check=True):
     return subprocess.run(cmd, check=check)
 
 
@@ -82,7 +71,8 @@ def resolve_backup_root(base_root, required):
 def main():
     ensure_root()
 
-    run_as_user = "ralexander"
+    # Run as the original user, but apply system-level changes.
+    run_as_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "ralexander"
     run_as_group = pwd.getpwnam(run_as_user).pw_gid
     user_home = pwd.getpwnam(run_as_user).pw_dir
 
@@ -96,12 +86,14 @@ def main():
     if run(["mountpoint", "-q", usb_mount], check=False).returncode != 0:
         err(f"{usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
         raise SystemExit(1)
+    # Locate backup root that contains Srv.
     backup_root = resolve_backup_root(base_root, ["Srv"])
     if not backup_root:
         err(f"Backup root not found under {base_root}")
         raise SystemExit(1)
     srv = os.path.join(backup_root, "Srv")
 
+    # Samba + SSH restore sources.
     smb_root = "/SMB"
     smb_subdirs = ["euclid", "pneuma", "SCP"]
     wsdd_service = "wsdd.service"
@@ -126,24 +118,14 @@ def main():
     ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     backup_dir = f"/var/backups/restore-serv-{ts}"
     os.makedirs(backup_dir, exist_ok=True)
-    log_dir = os.path.join(backup_root, "logs")
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, f"restore-serv-{ts}.log")
-        global LOG_FH
-        LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-    except OSError as exc:
-        print(f"ERROR: unable to open log file in {log_dir}: {exc}", file=sys.stderr)
-        raise SystemExit(1)
     status(f"Restore start: {datetime.datetime.now().isoformat()}")
-    status(f"Log: {log_path}")
     progress("Kernel module")
-    log("[*] Loading CIFS kernel module (if available)…")
+    # Load CIFS for SMB mounts.
     run(["modprobe", "cifs"], check=False)
 
     progress("Samba config")
+    # Backup existing Samba config and apply new one.
     if os.path.isdir("/etc/samba"):
-        log(f"[*] Backing up /etc/samba to {backup_dir}/etc-samba...")
         run(["rsync", "-a", "--quiet", "/etc/samba/", f"{backup_dir}/etc-samba/"])
 
     smb_conf_bak = f"/etc/samba/smb.conf.{ts}.bak"
@@ -154,7 +136,7 @@ def main():
     os.chown("/etc/samba/smb.conf", 0, 0)
     os.chmod("/etc/samba/smb.conf", 0o644)
 
-    log("[*] Creating SMB root and subdirectories with strict permissions…")
+    # Create SMB share structure.
     os.makedirs(smb_root, exist_ok=True)
     os.chmod(smb_root, 0o1750)
     for d in smb_subdirs:
@@ -166,24 +148,22 @@ def main():
         os.chown(os.path.join(smb_root, d), pwd.getpwnam(run_as_user).pw_uid, run_as_group)
 
     progress("Samba users/services")
-    log(f"[*] Setting ownership of {smb_root} to {run_as_user}...")
+    # Ensure ownership and enable services.
     run(["chown", "-R", f"{run_as_user}:{run_as_group}", smb_root])
 
     proc = subprocess.run(["pdbedit", "-L"], text=True, capture_output=True, check=False)
     if run_as_user not in proc.stdout:
-        log(f"[*] Adding Samba account for {run_as_user} (you'll be prompted for a password)…")
-        run(["smbpasswd", "-a", run_as_user], check=True)
+        run_interactive(["smbpasswd", "-a", run_as_user], check=True)
     else:
-        log("[*] Samba account already exists—skipping.")
+        pass
 
-    log("[*] Enabling and starting Samba-related services…")
     for svc in smb_services:
         run(["systemctl", "enable", "--now", svc])
 
     if command_exists("testparm"):
-        log("[*] Validating smb.conf…")
+        # Validate config before continuing.
         if run(["testparm", "-s", "/etc/samba/smb.conf"], check=False).returncode != 0:
-            log("[!] smb.conf validation failed; restoring backup.")
+            err("[!] smb.conf validation failed; restoring backup.")
             shutil.copy2(smb_conf_bak, "/etc/samba/smb.conf")
             os.chown("/etc/samba/smb.conf", 0, 0)
             os.chmod("/etc/samba/smb.conf", 0o644)
@@ -193,7 +173,7 @@ def main():
 
     for svc in smb_services:
         if run(["systemctl", "is-active", "--quiet", svc], check=False).returncode != 0:
-            log(f"[!] Service failed: {svc}. Restoring smb.conf backup.")
+            err(f"[!] Service failed: {svc}. Restoring smb.conf backup.")
             shutil.copy2(smb_conf_bak, "/etc/samba/smb.conf")
             os.chown("/etc/samba/smb.conf", 0, 0)
             os.chmod("/etc/samba/smb.conf", 0o644)
@@ -202,6 +182,7 @@ def main():
             raise SystemExit("Samba services failed to start; backup restored. Fix errors and retry.")
 
     progress("SSH config")
+    # Restore SSH keys and config.
     src_ssh_dir = os.path.join(srv, "ssh", ".ssh")
     dest_ssh_dir = os.path.join(user_home, ".ssh")
 
@@ -209,9 +190,7 @@ def main():
     run(["systemctl", "enable", "--now", yubi_service])
 
     if os.path.isdir(src_ssh_dir):
-        log("[*] Syncing SSH keys/config…")
         if os.path.isdir(dest_ssh_dir):
-            log(f"[*] Backing up existing SSH directory to {backup_dir}/ssh...")
             run(["rsync", "-a", "--quiet", f"{dest_ssh_dir}/", f"{backup_dir}/ssh/"])
         os.makedirs(dest_ssh_dir, exist_ok=True)
         run(["chown", f"{run_as_user}:{run_as_group}", dest_ssh_dir])
@@ -227,9 +206,10 @@ def main():
                 else:
                     os.chmod(path, 0o600)
     else:
-        log(f"[!] Source SSH directory not found: {src_ssh_dir} (skipping key sync).")
+        err(f"[!] Source SSH directory not found: {src_ssh_dir} (skipping key sync).")
 
     sshd_conf_bak = f"/etc/ssh/sshd_config.{ts}.bak"
+    # Replace sshd_config and validate.
     shutil.copy2(sshd_conf_src, sshd_conf_bak)
     os.chown(sshd_conf_bak, 0, 0)
     os.chmod(sshd_conf_bak, 0o600)
@@ -237,27 +217,22 @@ def main():
     os.chown("/etc/ssh/sshd_config", 0, 0)
     os.chmod("/etc/ssh/sshd_config", 0o600)
 
-    log("[*] Validating sshd_config…")
     if run(["sshd", "-t", "-f", "/etc/ssh/sshd_config"], check=False).returncode == 0:
         run(["systemctl", "enable", "--now", sshd_service])
     else:
-        log("[!] sshd_config validation failed; restoring backup.")
+        err("[!] sshd_config validation failed; restoring backup.")
         shutil.copy2(sshd_conf_bak, "/etc/ssh/sshd_config")
         os.chown("/etc/ssh/sshd_config", 0, 0)
         os.chmod("/etc/ssh/sshd_config", 0o600)
         raise SystemExit("sshd_config validation failed; backup restored. Fix errors and retry.")
 
-    log("[*] Service status summary:")
+    # Service status summary for quick checks.
     for svc in smb_services + [sshd_service]:
         run(["systemctl", "--no-pager", "--full", "status", svc], check=False)
-        log("----")
 
     status("[*] Restore services done.")
     target_root = backup_root or os.path.dirname(srv.rstrip("/"))
     status(f"Target: {target_root}")
-    status(f"Log: {log_path}")
-    if LOG_FH:
-        LOG_FH.close()
 
 
 if __name__ == "__main__":

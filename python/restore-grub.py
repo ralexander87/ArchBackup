@@ -7,23 +7,13 @@ import subprocess
 import sys
 
 
-LOG_FH = None
 QUIET = True
 TOTAL_STEPS = 3
 STEP = 0
 
 
-def log(msg):
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
-
-
 def status(msg):
     print(msg)
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 
 def progress(msg):
@@ -34,13 +24,10 @@ def progress(msg):
 
 def err(msg):
     print(msg, file=sys.stderr)
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 def run(cmd, check=True):
-    if QUIET and LOG_FH:
-        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
+    if QUIET:
+        return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL)
     return subprocess.run(cmd, check=check)
 
 
@@ -97,6 +84,7 @@ def resolve_backup_root(base_root, required):
 def main():
     ensure_root()
 
+    # Locate backup root and required GRUB theme files.
     user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
     usb_label = os.environ.get("BKP_USB_LABEL", "netac")
     usb_mount = f"/run/media/{user}/{usb_label}"
@@ -107,6 +95,7 @@ def main():
     if run(["mountpoint", "-q", usb_mount], check=False).returncode != 0:
         err(f"Error: {usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
         sys.exit(1)
+    # Find the backup root that contains Srv.
     backup_root = resolve_backup_root(base_root, ["Srv"])
     if not backup_root:
         err(f"Error: backup root not found under {base_root}")
@@ -131,35 +120,25 @@ def main():
         err("Error: grub-mkconfig not found in PATH.")
         sys.exit(1)
 
+    # Keep a backup of current settings and theme.
     os.makedirs(backup_dir, exist_ok=True)
-    log_dir = os.path.join(backup_root, "logs")
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, f"restore-grub-{ts}.log")
-        global LOG_FH
-        LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-    except OSError as exc:
-        print(f"ERROR: unable to open log file in {log_dir}: {exc}", file=sys.stderr)
-        sys.exit(1)
-
     try:
         status(f"Restore GRUB start: {datetime.datetime.now().isoformat()}")
-        status(f"Log: {log_path}")
         progress("Backup defaults")
-        log(f"Creating backup: {backup}")
         shutil.copy2(grub_default, backup)
 
         os.makedirs("/boot/grub/themes", exist_ok=True)
         if os.path.isdir("/boot/grub/themes/lateralus"):
-            log(f"Backing up existing theme to: {backup_dir}/lateralus")
             run(["rsync", "-a", "--quiet", "/boot/grub/themes/lateralus/", f"{backup_dir}/lateralus/"])
 
+        # Restore theme files from backup media.
         progress("Restore theme")
         run(["rsync", "-a", "--quiet", theme, "/boot/grub/themes/"])
 
         with open(grub_default, "r", encoding="utf-8", errors="replace") as fh:
             lines = fh.readlines()
 
+        # Ensure required GRUB settings are present.
         lines = replace_or_append(lines, "GRUB_CMDLINE_LINUX_DEFAULT", "loglevel=3 quiet splash")
         lines = replace_or_append(lines, "GRUB_GFXMODE", "1440x1080x32")
         lines = replace_or_append(lines, "GRUB_THEME", "/boot/grub/themes/lateralus/theme.txt")
@@ -168,16 +147,14 @@ def main():
         with open(grub_default, "w", encoding="utf-8") as fh:
             fh.writelines(lines)
 
+        # Rebuild grub.cfg.
         progress("Update grub.cfg")
-        log(f"Updated {grub_default}")
         run(["grub-mkconfig", "-o", "/boot/grub/grub.cfg"])
         status("Restore GRUB done.")
         target_root = backup_root or os.path.dirname(srv.rstrip("/"))
         status(f"Target: {target_root}")
-        status(f"Log: {log_path}")
     finally:
-        if LOG_FH:
-            LOG_FH.close()
+        pass
 
 
 if __name__ == "__main__":

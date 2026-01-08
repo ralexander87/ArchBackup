@@ -10,23 +10,13 @@ import subprocess
 import sys
 
 
-LOG_FH = None
 QUIET = True
 TOTAL_STEPS = 5
 STEP = 0
 
 
-def log(msg):
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
-
-
 def status(msg):
     print(msg)
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 
 def progress(msg):
@@ -37,19 +27,15 @@ def progress(msg):
 
 def err(msg):
     print(msg, file=sys.stderr)
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 
 def summary(msg):
-    print(msg)
-    log(msg)
+    status(msg)
 
 
 def run(cmd, check=True):
-    if QUIET and LOG_FH:
-        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
+    if QUIET:
+        return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL)
     return subprocess.run(cmd, check=check)
 
 
@@ -58,7 +44,7 @@ def run_rsync_allow_partial(cmd):
     if rc not in (0, 23, 24):
         raise subprocess.CalledProcessError(rc, cmd)
     if rc in (23, 24):
-        log("[!] rsync completed with partial transfer (code 23/24). Continuing.")
+        err("[!] rsync completed with partial transfer (code 23/24). Continuing.")
     return rc
 
 
@@ -110,6 +96,10 @@ def select_target():
     if not mounts:
         err("No mounted external devices found under /run/media or /media.")
         sys.exit(1)
+    preferred = "/run/media/ralexander/netac"
+    for m in mounts:
+        if m.get("MOUNTPOINT") == preferred:
+            return preferred
     print("Select target device:")
     for i, m in enumerate(mounts, 1):
         desc = f"{m['MOUNTPOINT']} ({m.get('NAME','?')}, {m.get('SIZE','?')}, {m.get('TRAN','?')}, {m.get('MODEL','unknown')})"
@@ -118,36 +108,24 @@ def select_target():
     if not choice.isdigit() or not (1 <= int(choice) <= len(mounts)):
         err("Invalid selection.")
         sys.exit(1)
-    mountpoint = mounts[int(choice) - 1]["MOUNTPOINT"]
-    return mountpoint
+    return mounts[int(choice) - 1]["MOUNTPOINT"]
 
 
 def main():
     status("-" * 92)
     os.umask(0o077)
 
-    ts = datetime.datetime.now().strftime("%j-%Y-%H%M")
     mountpoint = select_target()
 
     base_root = os.path.join(mountpoint, "START")
     os.makedirs(base_root, exist_ok=True)
+    for script in glob.glob("/home/ralexander/Code/PY/PY/restore-*"):
+        if os.path.isfile(script):
+            shutil.copy2(script, base_root)
 
-    create_dir = input(f"Create timestamped directory under {base_root}? [y/N]: ").strip()
-    if create_dir.lower() == "y":
-        usb = os.path.join(base_root, ts)
-        os.makedirs(usb, exist_ok=True)
-        created = "yes"
-    else:
-        usb = base_root
-        created = "no"
+    usb = base_root
 
     status(f"Target: {usb}")
-    confirm = input("Proceed with backup? [y/N]: ").strip()
-    if confirm.lower() != "y":
-        status("Cancelled.")
-        return
-
-    user = os.environ.get("USER") or getpass.getuser()
     min_free_gb = int(os.environ.get("BKP_MIN_FREE_GB", "20"))
     luks_device = os.environ.get("BKP_LUKS_DEVICE", "/dev/nvme0n1p2")
     srv = os.path.join(usb, "Srv")
@@ -167,6 +145,26 @@ def main():
         ".zshrc",
         ".gitconfig",
     ]
+    excludes = [
+        ".cache/",
+        ".var/app/",
+        ".subversion/",
+        ".mozilla/",
+        ".local/share/fonts/",
+        ".local/share/fonts/NerdFonts/",
+        ".vscode-oss/",
+        "Trash/",
+        ".config/*/Cache/",
+        ".config/*/cache/",
+        ".config/*/Code Cache/",
+        ".config/*/GPUCache/",
+        ".config/*/CachedData/",
+        ".config/*/CacheStorage/",
+        ".config/*/Service Worker/",
+        ".config/*/IndexedDB/",
+        ".config/*/Local Storage/",
+    ]
+    exclude_args = [f"--exclude={pattern}" for pattern in excludes]
 
     if not command_exists("mountpoint"):
         err("Missing required command: mountpoint")
@@ -189,52 +187,60 @@ def main():
     os.makedirs(os.path.join(srv, "grub"), exist_ok=True)
     os.makedirs(os.path.join(srv, "ssh"), exist_ok=True)
     os.makedirs(os.path.join(srv, "samba"), exist_ok=True)
-    log_dir = os.path.join(usb, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f"backup-usb-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log")
-
     for script in glob.glob("*.sh"):
         make_executable(script)
 
-    global LOG_FH
-    LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
     try:
         status(f"Backup start: {datetime.datetime.now().isoformat()}")
-        status(f"Log: {log_path}")
-        status(f"Target: {usb} (new dir: {created})")
+        status(f"Target: {usb}")
         progress("Pre-flight checks")
-        log(f"Starting backup to: {usb}")
 
         free_gb = shutil.disk_usage(mountpoint).free // (1024**3)
         if free_gb < min_free_gb:
-            log(f"Not enough free space on {mountpoint}: {free_gb}G available, need {min_free_gb}G")
+            err(f"Not enough free space on {mountpoint}: {free_gb}G available, need {min_free_gb}G")
             sys.exit(1)
 
-        luks_header_file = os.path.join(usb, f"luks-header-{ts}.img")
+        luks_header_file = os.path.join(usb, f"luks-header-{datetime.datetime.now().strftime('%j-%Y-%H%M')}.img")
 
         if os.path.exists(luks_device):
-            log(f"Backing up LUKS header of {luks_device} to: {luks_header_file}")
             run(["sudo", "cryptsetup", "luksHeaderBackup", luks_device, "--header-backup-file", luks_header_file])
         else:
-            log(f"Skipping LUKS header backup; device not found: {luks_device}")
+            pass
 
         progress("User files")
         for d in dirs:
             src = os.path.join(os.path.expanduser("~"), d)
             if not os.path.exists(src):
-                log(f"Skipping missing {src}")
                 continue
             run_rsync_allow_partial(
-                ["rsync", "-arh", "--quiet", "--partial", "--partial-dir=.rsync-partial", src, os.path.join(usb, "home")]
+                [
+                    "rsync",
+                    "-arh",
+                    "--quiet",
+                    "--partial",
+                    "--partial-dir=.rsync-partial",
+                    *exclude_args,
+                    src,
+                    os.path.join(usb, "home"),
+                ]
             )
 
         progress("Dotfiles and SSH")
         if os.path.isdir(dots):
             run_rsync_allow_partial(
-                ["rsync", "-arh", "--quiet", "--partial", "--partial-dir=.rsync-partial", dots, os.path.join(usb, "dots")]
+                [
+                    "rsync",
+                    "-arh",
+                    "--quiet",
+                    "--partial",
+                    "--partial-dir=.rsync-partial",
+                    *exclude_args,
+                    dots,
+                    os.path.join(usb, "dots"),
+                ]
             )
         else:
-            log(f"Skipping missing DOTS path: {dots}")
+            pass
 
         ssh_dir = os.path.expanduser("~/.ssh")
         if os.path.isdir(ssh_dir):
@@ -252,7 +258,7 @@ def main():
                 ]
             )
         else:
-            log(f"Skipping missing {ssh_dir}")
+            pass
 
         progress("Extras")
         cursor_dir = os.path.expanduser("~/.local/share/icons/LyraX-cursors")
@@ -281,17 +287,13 @@ def main():
         progress("System files")
         for src, dest in system_paths.items():
             if not os.path.exists(src):
-                log(f"Skipping missing {src}")
                 continue
-            log(f"Backing up {src}...")
-            run(["sudo", "rsync", "-a", "--quiet", src, dest])
+            run_rsync_allow_partial(["sudo", "rsync", "-a", "--quiet", src, dest])
 
         summary("Backup done.")
         summary(f"Target: {usb}")
-        summary(f"Log: {log_path}")
     finally:
-        if LOG_FH:
-            LOG_FH.close()
+        pass
 
 
 if __name__ == "__main__":

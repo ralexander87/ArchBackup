@@ -8,7 +8,6 @@ import sys
 from datetime import datetime
 
 
-LOG_FH = None
 QUIET = True
 TOTAL_STEPS = 4
 STEP = 0
@@ -19,20 +18,13 @@ def command_exists(cmd):
 
 
 def run(cmd, check=True):
-    if QUIET and LOG_FH:
-        return subprocess.run(cmd, check=check, stdout=LOG_FH, stderr=LOG_FH)
+    if QUIET:
+        return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL)
     return subprocess.run(cmd, check=check)
-
-
-def log(msg):
-    if LOG_FH:
-        LOG_FH.write(msg + "\n")
-        LOG_FH.flush()
 
 
 def status(msg):
     print(msg)
-    log(msg)
 
 
 def progress(msg):
@@ -43,7 +35,6 @@ def progress(msg):
 
 def err(msg):
     print(msg, file=sys.stderr)
-    log(msg)
 
 
 def backup_path(path, backup_dir, label=None):
@@ -124,18 +115,7 @@ def main():
     dots = os.path.join(user_home, ".mydotfiles", "com.ml4w.dotfiles.stable", ".config")
     hypr = os.path.join(dots, "hypr", "conf")
 
-    log_dir = os.path.join(backup_root, "logs")
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, f"restore-dots-{datetime.now().strftime('%Y%m%d%H%M%S')}.log")
-        global LOG_FH
-        LOG_FH = open(log_path, "a", encoding="utf-8", errors="replace")
-    except OSError as exc:
-        print(f"ERROR: unable to open log file in {log_dir}: {exc}", file=sys.stderr)
-        sys.exit(1)
-
     status(f"Restore dots start: {datetime.now().isoformat()}")
-    status(f"Log: {log_path}")
     progress("Pre-flight")
 
     if not os.path.isdir(src):
@@ -145,6 +125,7 @@ def main():
         err(f"ERROR: dotfiles config not found: {dots}")
         sys.exit(1)
 
+    # Local backup directoory
     backup_dir = os.path.join(
         user_home, ".mydotfiles", f"restore-dots-backup-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     )
@@ -152,10 +133,11 @@ def main():
     restored_items = []
     backed_up_items = []
 
+    # Remove PintaProject
     if command_exists("flatpak"):
         run(["flatpak", "uninstall", "-y", "com.github.PintaProject.Pinta", "com.ml4w.calendar"], check=False)
 
-    # hyprctl settings
+    # Hyprctl settings foor ML4w
     progress("Core settings")
     os.makedirs(os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings"), exist_ok=True)
     hyprctl_src = os.path.join(src, "hyprctl.json")
@@ -163,7 +145,7 @@ def main():
         shutil.copy2(hyprctl_src, os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings", "hyprctl.json"))
         restored_items.append("hyprctl.json")
 
-    # keybindings
+    # My keybinds
     os.makedirs(os.path.join(hypr, "keybindings"), exist_ok=True)
     kb_src = os.path.join(src, "hypr", "conf", "keybindings", "lateralus.conf")
     if os.path.isfile(kb_src):
@@ -175,7 +157,7 @@ def main():
             fh.write("source = ~/.config/hypr/conf/keybindings/lateralus.conf\n")
         restored_items.append("hypr/keybindings/lateralus.conf")
 
-    # wallpapers symlink
+    # Wallpaper ln from Pictures to ml4w destination
     wp_path = os.path.join(dots, "ml4w", "wallpapers")
     if os.path.exists(wp_path):
         try:
@@ -190,7 +172,7 @@ def main():
     os.symlink(os.path.join(user_home, "Pictures", "wallpapers"), wp_path)
     restored_items.append("ml4w/wallpapers -> ~/Pictures/wallpapers")
 
-    # hypridle/hyprlock
+    # Hypridle changes
     hypridle = os.path.join(dots, "hypr", "hypridle.conf")
     if os.path.isfile(hypridle):
         backed_up_items.append(backup_path(hypridle, backup_dir, "hypridle.conf"))
@@ -200,15 +182,57 @@ def main():
         )
         restored_items.append("hypr/hypridle.conf")
 
+    # Hyprlock changes
     hyprlock = os.path.join(dots, "hypr", "hyprlock.conf")
     if os.path.isfile(hyprlock):
         backed_up_items.append(backup_path(hyprlock, backup_dir, "hyprlock.conf"))
         regex_replace_in_file(
-            hyprlock, r'^([ \t]*)font_family([ \t]*=[ \t]*)?.*$', r'\1font_family = Monofur Nerd Font'
+            hyprlock,
+            r'^([ \t]*)font_family([ \t]*=[ \t]*)?.*$',
+            r'\1font_family = JetBrains Mono Nerd Font ExtraBold Italic',
         )
+        regex_replace_in_file(
+            hyprlock,
+            r'^([ \t]*)path[ \t]*=[ \t]*\$ml4w_cache_folder/square_wallpaper\.png[ \t]*$',
+            r'\1path = ~/.mydotfiles/com.ml4w.dotfiles.stable/.config/hypr/logo-2.png',
+        )
+        regex_replace_in_file(
+            hyprlock,
+            r'Input Password\.\.\.',
+            r'Pedo mellon a minno!\.\.\.',
+        )
+        regex_replace_in_file(
+            hyprlock,
+            r'^([ \t]*)size[ \t]*=[ \t]*200,[ \t]*50[ \t]*$',
+            r'\1size = 400, 50',
+        )
+        regex_replace_in_file(
+            hyprlock,
+            r'^([ \t]*)font_size[ \t]*=[ \t]*70[ \t]*$',
+            r'\1font_size = 150',
+        )
+        regex_replace_in_file(
+            hyprlock,
+            r'^([ \t]*)halign[ \t]*=[ \t]*right[ \t]*$',
+            r'\1halign = center',
+        )
+        regex_replace_in_file(
+            hyprlock,
+            r'^([ \t]*)ignore_empty_input[ \t]*=[ \t]*true[ \t]*$',
+            r'\1ignore_empty_input = true\n\1animation = fade, 0',
+        )
+        weather_path = os.path.join(backup_root, "home", "Shared", "weather")
+        if os.path.isfile(weather_path):
+            try:
+                with open(weather_path, "r", encoding="utf-8", errors="replace") as fh:
+                    weather_text = fh.read().strip()
+                with open(hyprlock, "a", encoding="utf-8") as fh:
+                    fh.write("\n" + weather_text + "\n")
+            except OSError:
+                pass
         restored_items.append("hypr/hyprlock.conf")
 
-    # hypr includes
+    # Checking for default folders
     progress("Hyprland config")
     os.makedirs(os.path.join(hypr, "environments"), exist_ok=True)
     os.makedirs(os.path.join(hypr, "animations"), exist_ok=True)
@@ -217,6 +241,7 @@ def main():
     os.makedirs(os.path.join(hypr, "monitors"), exist_ok=True)
     os.makedirs(os.path.join(hypr, "windows"), exist_ok=True)
 
+    # Add nVidia enviroments
     nvidia_conf = os.path.join(hypr, "environments", "nvidia.conf")
     if os.path.isfile(nvidia_conf):
         backed_up_items.append(backup_path(nvidia_conf, backup_dir, "nvidia.conf"))
@@ -224,6 +249,7 @@ def main():
         fh.write("env = AQ_DRM_DEVICES,/dev/dri/card1:/dev/dri/card2\n")
     restored_items.append("hypr/environments/nvidia.conf")
 
+    # Basic changes for my system
     for name, src_line in [
         ("animation.conf", "source = ~/.config/hypr/conf/animations/default.conf\n"),
         ("decoration.conf", "source = ~/.config/hypr/conf/decorations/no-rounding.conf\n"),
@@ -239,7 +265,7 @@ def main():
             fh.write(src_line)
         restored_items.append(f"hypr/{name}")
 
-    # ml4w settings
+    # Change some default location's and fonts
     settings_dir = os.path.join(dots, "ml4w", "settings")
     os.makedirs(settings_dir, exist_ok=True)
     for fname, content in [
@@ -258,7 +284,7 @@ def main():
             fh.write(content)
         restored_items.append(f"ml4w/settings/{fname}")
 
-    # matugen
+    # Matugen color's
     progress("Apps and themes")
     matugen_src = os.path.join(src, "matugen")
     if os.path.isdir(matugen_src):
@@ -269,7 +295,25 @@ def main():
         shutil.copytree(matugen_src, matugen_dest, dirs_exist_ok=True)
         restored_items.append("matugen")
 
-    # waybar theme
+    # Cava settings and theme
+    cava_src = os.path.join(src, "cava")
+    if os.path.isdir(cava_src):
+        cava_dest = os.path.join(dots, "cava")
+        if os.path.isdir(cava_dest):
+            backed_up_items.append(backup_path(cava_dest, backup_dir, "cava"))
+            shutil.rmtree(cava_dest)
+        shutil.copytree(cava_src, cava_dest, dirs_exist_ok=True)
+        restored_items.append("cava")
+        config_cava = os.path.join(user_home, ".config", "cava")
+        if os.path.islink(config_cava) or os.path.exists(config_cava):
+            if os.path.isdir(config_cava) and not os.path.islink(config_cava):
+                shutil.rmtree(config_cava)
+            else:
+                os.remove(config_cava)
+        os.makedirs(os.path.join(user_home, ".config"), exist_ok=True)
+        os.symlink(cava_dest, config_cava)
+
+    # My waybar themes: lateralus and ralex
     waybar_src = os.path.join(src, "waybar", "themes", "lateralus")
     if os.path.isdir(waybar_src):
         waybar_dest = os.path.join(dots, "waybar", "themes")
@@ -279,14 +323,25 @@ def main():
             backed_up_items.append(backup_path(existing, backup_dir, "waybar-lateralus"))
             shutil.rmtree(existing)
         shutil.copytree(waybar_src, os.path.join(waybar_dest, "lateralus"), dirs_exist_ok=True)
+        restored_items.append("waybar theme (lateralus)")
+
+    waybar_src = os.path.join(src, "waybar", "themes", "ralex")
+    if os.path.isdir(waybar_src):
+        waybar_dest = os.path.join(dots, "waybar", "themes")
+        os.makedirs(waybar_dest, exist_ok=True)
+        existing = os.path.join(waybar_dest, "ralex")
+        if os.path.isdir(existing):
+            backed_up_items.append(backup_path(existing, backup_dir, "waybar-ralex"))
+            shutil.rmtree(existing)
+        shutil.copytree(waybar_src, os.path.join(waybar_dest, "ralex"), dirs_exist_ok=True)
         waybar_setting = os.path.join(settings_dir, "waybar-theme.sh")
         if os.path.isfile(waybar_setting):
             backed_up_items.append(backup_path(waybar_setting, backup_dir, "waybar-theme.sh"))
         with open(waybar_setting, "w", encoding="utf-8") as fh:
-            fh.write("/lateralus;/lateralus\n")
-        restored_items.append("waybar theme")
+            fh.write("/ralex;/ralex\n")
+        restored_items.append("waybar theme (ralex)")
 
-    # rofi
+    # Rofi changes
     rofi_src = os.path.join(src, "rofi")
     rofi_dest = os.path.join(dots, "rofi")
     if os.path.isdir(rofi_src):
@@ -300,14 +355,14 @@ def main():
                 replace_in_file(path, [("Fira Sans 11", "Monofur Nerd Font 12")])
         restored_items.append("rofi")
 
-    # wlogout
+    # Wlogout changes
     wlogout_style = os.path.join(dots, "wlogout", "style.css")
     if os.path.isfile(wlogout_style):
         backed_up_items.append(backup_path(wlogout_style, backup_dir, "wlogout-style.css"))
         replace_in_file(wlogout_style, [("Fira Sans Semibold", "Monofur Nerd Font")])
         restored_items.append("wlogout/style.css")
 
-    # kitty
+    # Kitty changes (kitty + zsh)
     kitty_src = os.path.join(src, "kitty")
     kitty_dest = os.path.join(dots, "kitty")
     if os.path.isdir(kitty_src):
@@ -333,11 +388,23 @@ def main():
             shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
             restored_items.append(name)
 
+    script_path = os.path.join(
+        user_home,
+        ".mydotfiles",
+        "com.ml4w.dotfiles.stable",
+        ".config",
+        "ml4w",
+        "scripts",
+        "shell.sh",
+    )
+    if os.path.isfile(script_path):
+        run(["bash", script_path], check=False)
+
+    # Status
     status("Restore dots done.")
+    status(f"Restored items: {len(restored_items)}")
+    status(f"Backed up items: {len([i for i in backed_up_items if i])}")
     status(f"Target: {backup_root}")
-    status(f"Log: {log_path}")
-    if LOG_FH:
-        LOG_FH.close()
 
 
 if __name__ == "__main__":
