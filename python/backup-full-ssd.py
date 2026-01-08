@@ -264,6 +264,7 @@ def main():
             "--exclude=.config/*/Service Worker/",
             "--exclude=.config/*/IndexedDB/",
             "--exclude=.config/*/Local Storage/",
+            "--exclude=.config/rambox/",
             "--exclude=.ssh/agent/",
             f"{src_home}/",
             f"{home_dir}/",

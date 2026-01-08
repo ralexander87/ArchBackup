@@ -233,6 +233,7 @@ main() {
     --exclude=.config/*/Service\ Worker/ \
     --exclude=.config/*/IndexedDB/ \
     --exclude=.config/*/Local\ Storage/ \
+    --exclude=.config/rambox/ \
     --exclude=.ssh/agent/ \
     "${src_home}/" "${home_dir}/" || exit $?
 

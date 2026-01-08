@@ -163,6 +163,7 @@ def main():
         ".config/*/Service Worker/",
         ".config/*/IndexedDB/",
         ".config/*/Local Storage/",
+        ".config/rambox/",
     ]
     exclude_args = [f"--exclude={pattern}" for pattern in excludes]
 

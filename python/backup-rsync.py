@@ -165,6 +165,7 @@ def main():
             ".config/*/Service Worker/",
             ".config/*/IndexedDB/",
             ".config/*/Local Storage/",
+            ".config/rambox/",
             ".local/share/fonts/NerdFonts/",
         ]
         exclude_args = [f"--exclude={pattern}" for pattern in excludes]
