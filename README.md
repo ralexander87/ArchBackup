@@ -24,11 +24,6 @@ Directory Layout
 - `restore-grub.py` / `SH/restore-grub.sh`
 - `restore-dots.py` / `SH/restore-dots.sh`
 
-Other:
-- `.venv/` local Python environment (ignored by git)
-- `.gitignore`
-- `weather` (optional text appended to hyprlock)
-
 
 Common Behavior
 ---------------

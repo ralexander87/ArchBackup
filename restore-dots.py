@@ -182,55 +182,32 @@ def main():
         )
         restored_items.append("hypr/hypridle.conf")
 
-    # Hyprlock changes
-    hyprlock = os.path.join(dots, "hypr", "hyprlock.conf")
-    if os.path.isfile(hyprlock):
-        backed_up_items.append(backup_path(hyprlock, backup_dir, "hyprlock.conf"))
-        regex_replace_in_file(
-            hyprlock,
-            r'^([ \t]*)font_family([ \t]*=[ \t]*)?.*$',
-            r'\1font_family = JetBrains Mono Nerd Font ExtraBold Italic',
-        )
-        regex_replace_in_file(
-            hyprlock,
-            r'^([ \t]*)path[ \t]*=[ \t]*\$ml4w_cache_folder/square_wallpaper\.png[ \t]*$',
-            r'\1path = ~/.mydotfiles/com.ml4w.dotfiles.stable/.config/hypr/logo-2.png',
-        )
-        regex_replace_in_file(
-            hyprlock,
-            r'Input Password\.\.\.',
-            r'Pedo mellon a minno!\.\.\.',
-        )
-        regex_replace_in_file(
-            hyprlock,
-            r'^([ \t]*)size[ \t]*=[ \t]*200,[ \t]*50[ \t]*$',
-            r'\1size = 400, 50',
-        )
-        regex_replace_in_file(
-            hyprlock,
-            r'^([ \t]*)font_size[ \t]*=[ \t]*70[ \t]*$',
-            r'\1font_size = 150',
-        )
-        regex_replace_in_file(
-            hyprlock,
-            r'^([ \t]*)halign[ \t]*=[ \t]*right[ \t]*$',
-            r'\1halign = center',
-        )
-        regex_replace_in_file(
-            hyprlock,
-            r'^([ \t]*)ignore_empty_input[ \t]*=[ \t]*true[ \t]*$',
-            r'\1ignore_empty_input = true\n\1animation = fade, 0',
-        )
-        weather_path = os.path.join(backup_root, "home", "Shared", "weather")
-        if os.path.isfile(weather_path):
-            try:
-                with open(weather_path, "r", encoding="utf-8", errors="replace") as fh:
-                    weather_text = fh.read().strip()
-                with open(hyprlock, "a", encoding="utf-8") as fh:
-                    fh.write("\n" + weather_text + "\n")
-            except OSError:
-                pass
+    # Hyprlock: restore from backup media without modifications.
+    src_hyprlock = os.path.join(src, "hypr", "hyprlock.conf")
+    dest_hyprlock = os.path.join(dots, "hypr", "hyprlock.conf")
+    if os.path.isfile(src_hyprlock):
+        if os.path.isfile(dest_hyprlock):
+            backed_up_items.append(backup_path(dest_hyprlock, backup_dir, "hyprlock.conf"))
+        shutil.copy2(src_hyprlock, dest_hyprlock)
         restored_items.append("hypr/hyprlock.conf")
+
+    logo_src = os.path.join(src, "hypr", "logo-2.png")
+    logo_dest = os.path.join(dots, "hypr", "logo-2.png")
+    if os.path.isfile(logo_src):
+        if os.path.isfile(logo_dest):
+            backed_up_items.append(backup_path(logo_dest, backup_dir, "logo-2.png"))
+        shutil.copy2(logo_src, logo_dest)
+        restored_items.append("hypr/logo-2.png")
+
+    uptime_src = os.path.join(src, "hypr", "scripts", "uptime.sh")
+    uptime_dest_dir = os.path.join(dots, "hypr", "scripts")
+    uptime_dest = os.path.join(uptime_dest_dir, "uptime.sh")
+    if os.path.isfile(uptime_src):
+        os.makedirs(uptime_dest_dir, exist_ok=True)
+        if os.path.isfile(uptime_dest):
+            backed_up_items.append(backup_path(uptime_dest, backup_dir, "uptime.sh"))
+        shutil.copy2(uptime_src, uptime_dest)
+        restored_items.append("hypr/scripts/uptime.sh")
 
     # Checking for default folders
     progress("Hyprland config")

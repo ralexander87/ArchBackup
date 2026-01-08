@@ -220,26 +220,43 @@ main() {
     restored_items+=("hypr/hypridle.conf")
   fi
 
-# Hyprlock changes
-  local hyprlock="${dots}/hypr/hyprlock.conf"
-  if [[ -f "$hyprlock" ]]; then
-    if name="$(backup_path "$hyprlock" "$backup_dir" "hyprlock.conf")"; then
-      backed_up_items+=("$name")
+# Hyprlock: restore from backup media without modifications.
+  local src_hyprlock="${src}/hypr/hyprlock.conf"
+  local dest_hyprlock="${dots}/hypr/hyprlock.conf"
+  if [[ -f "$src_hyprlock" ]]; then
+    if [[ -f "$dest_hyprlock" ]]; then
+      if name="$(backup_path "$dest_hyprlock" "$backup_dir" "hyprlock.conf")"; then
+        backed_up_items+=("$name")
+      fi
     fi
-    regex_replace_in_file "$hyprlock" '^([ \t]*)font_family([ \t]*=[ \t]*)?.*$' '\1font_family = JetBrains Mono Nerd Font ExtraBold Italic'
-    regex_replace_in_file "$hyprlock" '^([ \t]*)path[ \t]*=[ \t]*\$ml4w_cache_folder/square_wallpaper\.png[ \t]*$' '\1path = ~/.mydotfiles/com.ml4w.dotfiles.stable/.config/hypr/logo-2.png'
-    regex_replace_in_file "$hyprlock" 'Input Password\.\.\.' 'Pedo mellon a minno!\.\.\.'
-    regex_replace_in_file "$hyprlock" '^([ \t]*)size[ \t]*=[ \t]*200,[ \t]*50[ \t]*$' '\1size = 400, 50'
-    regex_replace_in_file "$hyprlock" '^([ \t]*)font_size[ \t]*=[ \t]*70[ \t]*$' '\1font_size = 150'
-    regex_replace_in_file "$hyprlock" '^([ \t]*)halign[ \t]*=[ \t]*right[ \t]*$' '\1halign = center'
-    regex_replace_in_file "$hyprlock" '^([ \t]*)ignore_empty_input[ \t]*=[ \t]*true[ \t]*$' '\1ignore_empty_input = true\n\1animation = fade, 0'
-    local weather_path="${backup_root}/home/Shared/weather"
-    if [[ -f "$weather_path" ]]; then
-      printf '\n' >>"$hyprlock"
-      cat "$weather_path" >>"$hyprlock"
-      printf '\n' >>"$hyprlock"
-    fi
+    cp -a "$src_hyprlock" "$dest_hyprlock"
     restored_items+=("hypr/hyprlock.conf")
+  fi
+
+  local logo_src="${src}/hypr/logo-2.png"
+  local logo_dest="${dots}/hypr/logo-2.png"
+  if [[ -f "$logo_src" ]]; then
+    if [[ -f "$logo_dest" ]]; then
+      if name="$(backup_path "$logo_dest" "$backup_dir" "logo-2.png")"; then
+        backed_up_items+=("$name")
+      fi
+    fi
+    cp -a "$logo_src" "$logo_dest"
+    restored_items+=("hypr/logo-2.png")
+  fi
+
+  local uptime_src="${src}/hypr/scripts/uptime.sh"
+  local uptime_dest_dir="${dots}/hypr/scripts"
+  local uptime_dest="${uptime_dest_dir}/uptime.sh"
+  if [[ -f "$uptime_src" ]]; then
+    mkdir -p "$uptime_dest_dir"
+    if [[ -f "$uptime_dest" ]]; then
+      if name="$(backup_path "$uptime_dest" "$backup_dir" "uptime.sh")"; then
+        backed_up_items+=("$name")
+      fi
+    fi
+    cp -a "$uptime_src" "$uptime_dest"
+    restored_items+=("hypr/scripts/uptime.sh")
   fi
 
 # Checking for default folders 
