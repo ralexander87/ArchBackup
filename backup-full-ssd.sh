@@ -1,249 +1,249 @@
 #!/usr/bin/env bash
-set -euo pipefail
-IFS=$'\n\t'
 
-echo "------------------------------------------------------------------------------------"
+set -u
 
-TOTAL_STEPS=5
+QUIET=true
+TOTAL_STEPS=6
 STEP=0
-status() { printf '%s\n' "$*" >/dev/tty; }
+
+status() {
+  printf '%s\n' "$*"
+}
+
 progress() {
   STEP=$((STEP + 1))
-  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+  status "[$STEP/$TOTAL_STEPS] $1"
 }
-err() { printf '[!] %s\n' "$*" >/dev/tty; }
 
-rsync_allow_partial() {
-  set +e
-  rsync "$@"
+err() {
+  printf '%s\n' "$*" >&2
+}
+
+run_cmd() {
+  if $QUIET; then
+    "$@" >/dev/null
+  else
+    "$@"
+  fi
+}
+
+run_rsync_allow_partial() {
+  "$@"
   local rc=$?
-  set -e
   if [[ $rc -ne 0 && $rc -ne 23 && $rc -ne 24 ]]; then
-    return $rc
+    return "$rc"
   fi
   if [[ $rc -eq 23 || $rc -eq 24 ]]; then
-    echo "[!] rsync completed with partial transfer (code $rc). Continuing."
+    err "[!] rsync completed with partial transfer (code 23/24). Continuing."
   fi
   return 0
 }
 
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+require_command() {
+  if ! command_exists "$1"; then
+    err "Missing required command: $1"
+    exit 1
+  fi
+}
+
+is_block_device() {
+  [[ -b "$1" ]]
+}
+
 prune_old() {
   local pattern="$1"
-  local keep="${2:-3}"
-  local -a items=()
+  local keep="$2"
+  mapfile -t items < <(ls -t $pattern 2>/dev/null)
   local i=0
-  shopt -s nullglob
-  items=( $pattern )
-  shopt -u nullglob
-  if (( ${#items[@]} <= keep )); then
-    return 0
-  fi
-  IFS=$'\n' read -r -d '' -a items < <(printf '%s\0' "${items[@]}" | xargs -0 ls -1dt -- 2>/dev/null)
-  for (( i=keep; i<${#items[@]}; i++ )); do
-    echo "Pruning old backup: ${items[$i]}"
-    rm -rf -- "${items[$i]}"
+  local item
+  for item in "${items[@]}"; do
+    i=$((i + 1))
+    if [[ $i -le $keep ]]; then
+      continue
+    fi
+    if [[ -d "$item" ]]; then
+      rm -rf "$item"
+    else
+      rm -f "$item"
+    fi
   done
 }
 
-select_mountpoint() {
-  local user="${SUDO_USER:-$USER}"
-  local -a mounts=()
-  local -a descs=()
-  local line
-  while read -r line; do
-    eval "$line"
-    [[ "${TYPE:-}" != "part" ]] && continue
-    [[ -z "${MOUNTPOINT:-}" ]] && continue
-    if [[ "$MOUNTPOINT" != "/run/media/$user/"* && "$MOUNTPOINT" != "/media/$user/"* ]]; then
-      continue
-    fi
-    mounts+=("$MOUNTPOINT")
-    descs+=("$MOUNTPOINT ($NAME, ${SIZE:-?}, ${TRAN:-?}, ${MODEL:-unknown})")
-  done < <(lsblk -P -o NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE)
+list_mounts() {
+  local user="${SUDO_USER:-${USER:-$(whoami)}}"
+  lsblk -P -o NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE |
+    while read -r line; do
+      eval "$line"
+      if [[ "${TYPE:-}" != "part" ]]; then
+        continue
+      fi
+      local mountpoint="${MOUNTPOINT:-}"
+      if [[ -z "$mountpoint" ]]; then
+        continue
+      fi
+      if [[ "$mountpoint" == "/run/media/${user}/"* || "$mountpoint" == "/media/${user}/"* ]]; then
+        printf '%s|%s|%s|%s\n' "$mountpoint" "${NAME:-?}" "${SIZE:-?}" "${TRAN:-?}:${MODEL:-unknown}"
+      fi
+    done
+}
 
-  if (( ${#mounts[@]} == 0 )); then
-    err "No mounted external devices found under /run/media/$user or /media/$user."
+select_target() {
+  local preferred="/run/media/ralexander/netac"
+  local mounts
+  mounts="$(list_mounts)"
+  if [[ -z "$mounts" ]]; then
+    err "No mounted external devices found under /run/media or /media."
     exit 1
   fi
-
-  printf 'Select target device:\n' >/dev/tty
-  local i
-  for i in "${!mounts[@]}"; do
-    printf '  %d) %s\n' $((i + 1)) "${descs[$i]}" >/dev/tty
-  done
-  printf 'Enter number: ' >/dev/tty
-  read -r choice
-  if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#mounts[@]} )); then
+  if echo "$mounts" | cut -d'|' -f1 | grep -qx "$preferred"; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+  status "Select target device:"
+  local i=1
+  local choices=()
+  while IFS='|' read -r mpoint name size meta; do
+    status "  ${i}) ${mpoint} (${name}, ${size}, ${meta})"
+    choices+=("$mpoint")
+    i=$((i + 1))
+  done <<<"$mounts"
+  read -r -p "Enter number: " choice
+  if [[ ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "${#choices[@]}" ]]; then
     err "Invalid selection."
     exit 1
   fi
-  SELECTED_MOUNT="${mounts[$((choice - 1))]}"
+  printf '%s\n' "${choices[$((choice - 1))]}"
 }
 
-LOCK_DIR="/tmp/backup-full-ssd-v3"
-LOCK_FILE="$LOCK_DIR/backup-full-ssd.lock"
-mkdir -p "$LOCK_DIR"
-if ! ( set -o noclobber; echo "$$" > "$LOCK_FILE" ) 2>/dev/null; then
-  err "Backup already running (lock: $LOCK_FILE)"
-  exit 1
-fi
-trap 'rm -f "$LOCK_FILE"' EXIT
+main() {
+  status "--------------------------------------------------------------------------------------------"
 
-TS=$(date '+%j-%Y-%H%M')
-select_mountpoint
+  local ts
+  ts="$(date '+%j-%Y-%H%M')"
+  local mountpoint
+  mountpoint="$(select_target)"
 
-printf 'Create timestamped directory under %s? [y/N]: ' "$SELECTED_MOUNT" >/dev/tty
-read -r create_dir
-if [[ "$create_dir" =~ ^[Yy]$ ]]; then
-  BASE_DIR="$SELECTED_MOUNT/$TS"
-  mkdir -p "$BASE_DIR"
-  CREATED_DIR="yes"
-else
-  BASE_DIR="$SELECTED_MOUNT"
-  CREATED_DIR="no"
-fi
+  local base_dir="${mountpoint}/${ts}"
+  mkdir -p "$base_dir"
+  local created="yes"
 
-printf 'Target: %s\n' "$BASE_DIR" >/dev/tty
-printf 'Proceed with backup? [y/N]: ' >/dev/tty
-read -r confirm
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-  status "Cancelled."
-  exit 0
-fi
+  status "Target: ${base_dir}"
 
-# Backup location on selected device
-BKP_BASE="$BASE_DIR"
-BKP_FOLDER="$BKP_BASE/$TS"
-ROOT_DIR="$BKP_FOLDER/root"
-HOME_DIR="$BKP_FOLDER/home"
-LOG_DIR="$BKP_BASE/logs"
-LOG_FILE="$LOG_DIR/backup-full-ssd-$TS.log"
-ARCHIVE_FILE="$BKP_BASE/full-backup-$TS.tar.gz"
+  local min_free_gb="${BKP_MIN_FREE_GB:-20}"
+  local luks_device="${BKP_LUKS_DEVICE:-/dev/nvme0n1p2}"
 
-# Prereqs
-REQUIRED_CMDS=(rsync mountpoint sudo cryptsetup)
-for cmd in "${REQUIRED_CMDS[@]}"; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    err "Missing required command: $cmd"
+  local bkp_base="$base_dir"
+  local bkp_folder="${bkp_base}/${ts}"
+  local root_dir="${bkp_folder}/root"
+  local home_dir="${bkp_folder}/home"
+  local archive_file="${bkp_base}/full-backup-${ts}.tar.gz"
+
+  if ! command_exists mountpoint || ! mountpoint -q "$mountpoint"; then
+    err "ERROR: ${mountpoint} is not a mountpoint."
     exit 1
   fi
-done
-if ! command -v sha256sum >/dev/null 2>&1; then
-  err "Missing required command: sha256sum"
-  exit 1
-fi
 
-if ! mountpoint -q "$SELECTED_MOUNT"; then
-  err "ERROR: $SELECTED_MOUNT is not a mountpoint."
-  exit 1
-fi
+  for cmd in rsync tar sudo cryptsetup; do
+    require_command "$cmd"
+  done
 
-if [[ ! -w "$BASE_DIR" ]]; then
-  err "Backup root not writable: $BASE_DIR"
-  exit 1
-fi
+  if [[ ! -w "$base_dir" ]]; then
+    err "Backup root not writable: ${base_dir}"
+    exit 1
+  fi
 
-BKP_MIN_FREE_GB="${BKP_MIN_FREE_GB:-20}"
-MIN_FREE_GB="$BKP_MIN_FREE_GB"
-FREE_BYTES=$(df -P -B1 "$SELECTED_MOUNT" | awk 'NR==2 {print $4}')
-FREE_GB=$(( FREE_BYTES / 1024 / 1024 / 1024 ))
-if [[ -n "$FREE_BYTES" && "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
-  err "Not enough free space on $SELECTED_MOUNT: ${FREE_GB}G available, need ${MIN_FREE_GB}G"
-  exit 1
-fi
+  local free_gb
+  free_gb=$(df -BG "$mountpoint" | awk 'NR==2 {gsub(/G/,"",$4); print $4}')
+  if [[ -n "$free_gb" && "$free_gb" -lt "$min_free_gb" ]]; then
+    err "Not enough free space on ${mountpoint}: ${free_gb}G available, need ${min_free_gb}G"
+    exit 1
+  fi
 
-mkdir -p "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR" "$LOG_DIR"
-exec >>"$LOG_FILE" 2>&1
-status "Backup start: $(date -Is)"
-status "Log: $LOG_FILE"
-status "Target: $BASE_DIR (new dir: $CREATED_DIR)"
+  mkdir -p "$bkp_folder" "$root_dir" "$home_dir"
+  status "Backup start: $(date '+%Y-%m-%dT%H:%M:%S')"
+  status "Target: ${base_dir} (new dir: ${created})"
+  progress "Pre-flight checks"
 
-progress "Pre-flight checks"
-# Install pigz if it is not installed
-if ! command -v pigz >/dev/null 2>&1; then
-  echo "pigz not found, installing..."
-  if command -v pacman >/dev/null 2>&1; then
-    if [[ $EUID -ne 0 ]]; then
-      sudo pacman -S --noconfirm pigz
+  progress "pigz"
+  if ! command_exists pigz; then
+    if command_exists pacman; then
+      if [[ "${EUID}" -ne 0 ]]; then
+        run_cmd sudo pacman -S --noconfirm pigz
+      else
+        run_cmd pacman -S --noconfirm pigz
+      fi
     else
-      pacman -S --noconfirm pigz
+      err "pacman not available; install pigz manually."
+      exit 1
     fi
+  fi
+
+  local src_home
+  if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    src_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
   else
-    echo "pacman not available; install pigz manually."
-    exit 1
+    src_home="$HOME"
   fi
-else
-  echo "pigz already installed, continuing..."
-fi
 
-progress "LUKS header (if present)"
-# Determine which home to back up (avoid backing up /root by accident)
-if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
-  SRC_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-else
-  SRC_HOME="$HOME"
-fi
-
-########################################
-# LUKS header backup
-########################################
-LUKS_HEADER_FILE="$BKP_BASE/luks-header-$TS.img"
-LUKS_DEVICE="${BKP_LUKS_DEVICE:-/dev/nvme0n1p2}"
-
-if [[ -b "$LUKS_DEVICE" ]]; then
-  echo "Backing up LUKS header of $LUKS_DEVICE to: $LUKS_HEADER_FILE"
-  sudo cryptsetup luksHeaderBackup "$LUKS_DEVICE" --header-backup-file "$LUKS_HEADER_FILE"
-else
-  echo "Skipping LUKS header backup; device not found: $LUKS_DEVICE"
-fi
-########################################
-
-progress "System files"
-##### System files (with sudo, preserving paths under root/)
-SYSTEM_PATHS=(
-  "/boot/grub/themes/lateralus"
-  "/etc/default/grub"
-  "/etc/mkinitcpio.conf"
-  "/usr/share/plymouth/plymouthd.defaults"
-  "/etc/samba/smb.conf"
-  "/etc/samba/euclid"
-  "/etc/ssh/sshd_config"
-  "/usr/lib/sddm/sddm.conf.d/default.conf"
-  "/etc/fstab"
-)
-
-for src in "${SYSTEM_PATHS[@]}"; do
-  if [[ ! -e "$src" ]]; then
-    echo "Skipping missing $src"
-    continue
+  progress "LUKS header (if present)"
+  local luks_header_file="${bkp_base}/luks-header-${ts}.img"
+  if is_block_device "$luks_device"; then
+    run_cmd sudo cryptsetup luksHeaderBackup "$luks_device" --header-backup-file "$luks_header_file"
   fi
-  echo "Backing up $src..."
-  sudo rsync -a --quiet "$src" "$ROOT_DIR/"
-done
 
-##### User files
-progress "User home"
-echo "Backing up $SRC_HOME..."
-rsync_allow_partial -aAX --quiet --partial --partial-dir=.rsync-partial \
-  --exclude=".cache/" \
-  --exclude=".var/app/" \
-  --exclude=".subversion/" \
-  --exclude=".mozilla/" \
-  --exclude=".local/share/fonts/" \
-  --exclude=".vscode-oss/" \
-  --exclude="Trash/" \
-  "$SRC_HOME/" "$HOME_DIR/"
+  local system_paths=(
+    "/boot/grub/themes/lateralus"
+    "/etc/default/grub"
+    "/etc/mkinitcpio.conf"
+    "/usr/share/plymouth/plymouthd.defaults"
+    "/etc/samba/smb.conf"
+    "/etc/samba/euclid"
+    "/etc/ssh/sshd_config"
+    "/usr/lib/sddm/sddm.conf.d/default.conf"
+    "/etc/fstab"
+  )
 
-progress "Archive"
-echo "Compressing full backup to: $ARCHIVE_FILE"
-tar --ignore-failed-read -I pigz -cf "$ARCHIVE_FILE" -C "$BKP_BASE" "$TS"
-echo "Archive checksum:"
-sha256sum "$ARCHIVE_FILE"
+  progress "System files"
+  local src
+  for src in "${system_paths[@]}"; do
+    [[ -e "$src" ]] || continue
+    run_rsync_allow_partial sudo rsync -a --quiet "$src" "$root_dir" || exit $?
+  done
 
-prune_old "$BKP_BASE/full-backup-*.tar.gz" 3
-prune_old "$BKP_BASE/[0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]" 3
+  progress "User home"
+  run_rsync_allow_partial rsync -aAX --quiet --partial --partial-dir=.rsync-partial \
+    --exclude=.cache/ \
+    --exclude=.var/app/ \
+    --exclude=.subversion/ \
+    --exclude=.mozilla/ \
+    --exclude=.local/share/fonts/ \
+    --exclude=.local/share/fonts/NerdFonts/ \
+    --exclude=.vscode-oss/ \
+    --exclude=Trash/ \
+    --exclude=.config/*/Cache/ \
+    --exclude=.config/*/cache/ \
+    --exclude=.config/*/Code\ Cache/ \
+    --exclude=.config/*/GPUCache/ \
+    --exclude=.config/*/CachedData/ \
+    --exclude=.config/*/CacheStorage/ \
+    --exclude=.config/*/Service\ Worker/ \
+    --exclude=.config/*/IndexedDB/ \
+    --exclude=.config/*/Local\ Storage/ \
+    --exclude=.ssh/agent/ \
+    "${src_home}/" "${home_dir}/" || exit $?
 
-status "Backup done."
-status "Target: $BASE_DIR"
-status "Archive: $ARCHIVE_FILE"
-status "Log: $LOG_FILE"
+  progress "Archive"
+  run_cmd tar --ignore-failed-read -I pigz -cf "$archive_file" -C "$bkp_base" "$ts"
+  status "Backup done."
+  status "Target: ${base_dir}"
+  status "Archive: ${archive_file}"
+
+  prune_old "${bkp_base}/full-backup-*.tar.gz" 3
+  prune_old "${bkp_base}/[0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]" 3
+}
+
+main "$@"

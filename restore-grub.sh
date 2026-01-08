@@ -1,141 +1,162 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-# Notes:
-# - Restores GRUB theme from backup and updates /etc/default/grub.
-# - Overwrites GRUB config settings (with backup).
-# - Does NOT restore LUKS header or /etc/fstab.
+set -u
 
-USB_LABEL="${BKP_USB_LABEL:-netac}"
-USB_USER="${SUDO_USER:-$USER}"
-USB_MOUNT="/run/media/$USB_USER/$USB_LABEL"
-USB_BASE="$USB_MOUNT/START"
-resolve_backup_root() {
+QUIET=true
+TOTAL_STEPS=3
+STEP=0
+
+status() {
+  printf '%s\n' "$*"
+}
+
+progress() {
+  STEP=$((STEP + 1))
+  status "[$STEP/$TOTAL_STEPS] $1"
+}
+
+err() {
+  printf '%s\n' "$*" >&2
+}
+
+run_cmd() {
+  if $QUIET; then
+    "$@" >/dev/null
+  else
+    "$@"
+  fi
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+ensure_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    exec sudo -E bash "$0" "$@"
+  fi
+}
+
+replace_or_append() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if grep -Eq "^[[:space:]]*#?[[:space:]]*${key}=" "$file"; then
+    sed -i -E "s|^[[:space:]]*#?[[:space:]]*${key}=.*|${key}=\"${value}\"|" "$file"
+  else
+    printf '%s\n' "${key}=\"${value}\"" >>"$file"
+  fi
+}
+
+has_required() {
   local base="$1"
   shift
-  local root=""
-  local ok=0
-  for root in "$base"; do
-    ok=1
-    for req in "$@"; do
-      [[ -e "$root/$req" ]] || ok=0
-    done
-    if (( ok )); then
-      printf '%s\n' "$root"
+  local name
+  for name in "$@"; do
+    if [[ ! -e "$base/$name" ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+resolve_backup_root() {
+  local base_root="$1"
+  shift
+  local required=("$@")
+  if has_required "$base_root" "${required[@]}"; then
+    printf '%s\n' "$base_root"
+    return 0
+  fi
+  local candidate
+  for candidate in "$base_root"/*/; do
+    if [[ ! -d "$candidate" ]]; then
+      continue
+    fi
+    if has_required "${candidate%/}" "${required[@]}"; then
+      printf '%s\n' "${candidate%/}"
       return 0
     fi
   done
-  local candidate
-  candidate=$(ls -1dt "$base"/*/ 2>/dev/null | head -n1)
-  candidate="${candidate%/}"
-  if [[ -n "$candidate" ]]; then
-    ok=1
-    for req in "$@"; do
-      [[ -e "$candidate/$req" ]] || ok=0
-    done
-    if (( ok )); then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  fi
   return 1
 }
-GRUB_DEFAULT_FILE="/etc/default/grub"
-BACKUP="/etc/default/grub.bak.$(date +%Y%m%d-%H%M%S)"
-TS="$(date +%Y%m%d%H%M%S)"
-BACKUP_DIR="/var/backups/restore-grub-$TS"
 
-TOTAL_STEPS=3
-STEP=0
-status() { printf '%s\n' "$*" >/dev/tty; }
-progress() {
-  STEP=$((STEP + 1))
-  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+main() {
+  ensure_root "$@"
+
+  # Locate backup root and required GRUB theme files.
+  local user="${SUDO_USER:-${USER:-$(whoami)}}"
+  local usb_label="${BKP_USB_LABEL:-netac}"
+  local usb_mount="/run/media/${user}/${usb_label}"
+  local base_root="${usb_mount}/START"
+
+  if ! command_exists mountpoint; then
+    err "Error: mountpoint not found."
+    exit 1
+  fi
+  if ! mountpoint -q "$usb_mount"; then
+    err "Error: ${usb_mount} is not a mountpoint. Is the USB plugged in and mounted?"
+    exit 1
+  fi
+
+  # Find the backup root that contains Srv.
+  local backup_root
+  if ! backup_root="$(resolve_backup_root "$base_root" "Srv")"; then
+    err "Error: backup root not found under ${base_root}"
+    exit 1
+  fi
+  local srv="${backup_root}/Srv"
+  local theme="${srv}/grub/lateralus"
+  local grub_default="/etc/default/grub"
+  local backup="/etc/default/grub.bak.$(date '+%Y%m%d-%H%M%S')"
+  local ts
+  ts="$(date '+%Y%m%d%H%M%S')"
+  local backup_dir="/var/backups/restore-grub-${ts}"
+
+  if [[ ! -f "$grub_default" ]]; then
+    err "Error: ${grub_default} not found."
+    exit 1
+  fi
+  if [[ ! -d "$srv" ]]; then
+    err "Error: backup directory not found: ${srv}"
+    exit 1
+  fi
+  if [[ ! -d "$theme" ]]; then
+    err "Error: theme directory not found: ${theme}"
+    exit 1
+  fi
+  if ! command_exists grub-mkconfig; then
+    err "Error: grub-mkconfig not found in PATH."
+    exit 1
+  fi
+
+  # Keep a backup of current settings and theme.
+  mkdir -p "$backup_dir"
+  status "Restore GRUB start: $(date '+%Y-%m-%dT%H:%M:%S')"
+  progress "Backup defaults"
+  cp -a "$grub_default" "$backup"
+
+  mkdir -p /boot/grub/themes
+  if [[ -d "/boot/grub/themes/lateralus" ]]; then
+    run_cmd rsync -a --quiet /boot/grub/themes/lateralus/ "${backup_dir}/lateralus/"
+  fi
+
+  # Restore theme files from backup media.
+  progress "Restore theme"
+  run_cmd rsync -a --quiet "$theme" /boot/grub/themes/
+
+  # Ensure required GRUB settings are present.
+  replace_or_append "$grub_default" "GRUB_CMDLINE_LINUX_DEFAULT" "loglevel=3 quiet splash"
+  replace_or_append "$grub_default" "GRUB_GFXMODE" "1440x1080x32"
+  replace_or_append "$grub_default" "GRUB_THEME" "/boot/grub/themes/lateralus/theme.txt"
+  replace_or_append "$grub_default" "GRUB_TERMINAL_OUTPUT" "gfxterm"
+
+  # Rebuild grub.cfg.
+  progress "Update grub.cfg"
+  run_cmd grub-mkconfig -o /boot/grub/grub.cfg
+
+  status "Restore GRUB done."
+  status "Target: ${backup_root}"
 }
 
-# Re-run as root if needed
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  exec sudo -p "[sudo] password for %u: " "$0" "$@"
-fi
-
-if ! command -v mountpoint >/dev/null 2>&1; then
-  echo "Error: mountpoint not found." >&2
-  exit 1
-fi
-if ! mountpoint -q "$USB_MOUNT"; then
-  echo "Error: $USB_MOUNT is not a mountpoint. Is the USB plugged in and mounted?" >&2
-  exit 1
-fi
-
-BACKUP_ROOT="$(resolve_backup_root "$USB_BASE" Srv || true)"
-if [[ -z "$BACKUP_ROOT" ]]; then
-  echo "Error: backup root not found under $USB_BASE" >&2
-  exit 1
-fi
-SRV="$BACKUP_ROOT/Srv"
-THEME="$SRV/grub/lateralus"
-
-if [[ ! -f "$GRUB_DEFAULT_FILE" ]]; then
-  echo "Error: $GRUB_DEFAULT_FILE not found." >&2
-  exit 1
-fi
-
-if [[ ! -d "$SRV" ]]; then
-  echo "Error: backup directory not found: $SRV" >&2
-  exit 1
-fi
-
-if [[ ! -d "$THEME" ]]; then
-  echo "Error: theme directory not found: $THEME" >&2
-  exit 1
-fi
-
-if [[ -n "${BACKUP_ROOT:-}" ]]; then
-  LOG_DIR="$BACKUP_ROOT/logs"
-else
-  LOG_DIR="$(dirname "$SRV")/logs"
-fi
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/restore-grub-$TS.log"
-exec >"$LOG_FILE" 2> >(tee -a "$LOG_FILE" >/dev/tty)
-status "Restore GRUB start: $(date -Is)"
-status "Log: $LOG_FILE"
-
-mkdir -p "$BACKUP_DIR"
-progress "Backup defaults"
-echo "Creating backup: $BACKUP"
-cp -a "$GRUB_DEFAULT_FILE" "$BACKUP"
-
-mkdir -p "/boot/grub/themes"
-if [[ -d "/boot/grub/themes/lateralus" ]]; then
-  echo "Backing up existing theme to: $BACKUP_DIR/lateralus"
-  rsync -a --quiet "/boot/grub/themes/lateralus/" "$BACKUP_DIR/lateralus/"
-fi
-progress "Restore theme"
-rsync -a --quiet "$THEME" "/boot/grub/themes/"
-
-sed -Ei \
-  -e 's|^#?GRUB_CMDLINE_LINUX_DEFAULT=.*$|GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 quiet splash"|' \
-  -e 's|^#?GRUB_GFXMODE=.*$|GRUB_GFXMODE=1440x1080x32|' \
-  -e 's|^#?GRUB_THEME=.*$|GRUB_THEME="/boot/grub/themes/lateralus/theme.txt"|' \
-  -e 's|^#?GRUB_TERMINAL_OUTPUT=.*$|GRUB_TERMINAL_OUTPUT=gfxterm|' \
-  -e 's|^#?GRUB_TERMINAL_OUTPUTconsole$|GRUB_TERMINAL_OUTPUT=gfxterm|' \
-  "$GRUB_DEFAULT_FILE"
-
-if ! grep -Eq '^[#]?GRUB_THEME=' "$GRUB_DEFAULT_FILE"; then
-  echo 'GRUB_THEME="/boot/grub/themes/lateralus/theme.txt"' >> "$GRUB_DEFAULT_FILE"
-fi
-
-progress "Update grub.cfg"
-echo "Updated $GRUB_DEFAULT_FILE"
-
-if ! command -v grub-mkconfig >/dev/null 2>&1; then
-  echo "Error: grub-mkconfig not found in PATH." >&2
-  exit 1
-fi
-
-grub-mkconfig -o /boot/grub/grub.cfg
-status "Restore GRUB done."
-TARGET_ROOT="${BACKUP_ROOT:-$(dirname "$SRV")}"
-status "Target: $TARGET_ROOT"
-status "Log: $LOG_FILE"
+main "$@"

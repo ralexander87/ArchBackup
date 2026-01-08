@@ -1,89 +1,250 @@
-# Full Backup & Restore Guide
+Backup/Restore Scripts
+=========================
 
-This is a short GitHub README for all backup/restore scripts in this repo.
-v2 uses fixed paths, v3 uses interactive device selection.
+Overview
+--------
+This repo contains a set of Python and Bash scripts for backing up and restoring
+your personal system, dotfiles, and service configuration. The scripts are
+tailored for your machine layout and USB mount conventions.
 
-## Quick map
+There are two parallel sets of scripts:
+- Python: `backup-*.py`, `restore-*.py`
+- Bash: `SH/*.sh`
 
-- Daily rsync backup:
-  - v2: `rsync/backup-rsync-v2.sh`, `rsync/backup-rsync-v2.py`
-  - v3: `v3/backup-rsync-v3.sh`, `v3/backup-rsync-v3.py`
-- Full SSD backup:
-  - v2: `full/backup-full-ssd-v2.sh`, `full/backup-full-ssd-v2.py`
-  - v3: `v3/backup-full-ssd-v3.sh`, `v3/backup-full-ssd-v3.py`
-- Pre-reinstall USB backup + restore:
-  - v2 Bash: `BR/v2/*.sh`
-  - v2 Python: `BR/v2/py/*.py`
+The Bash versions mirror the Python behavior for the same task.
 
-## v3 behavior
 
-- Lists mounted external devices and prompts to select one.
-- Optionally creates a timestamped directory on the device.
-- Asks for confirmation before starting.
+Directory Layout
+----------------
+- `backup-usb.py` / `SH/backup-usb.sh`
+- `backup-rsync.py` / `SH/backup-rsync.sh`
+- `backup-full-ssd.py` / `SH/backup-full-ssd.sh`
+- `restore-main.py` / `SH/restore-main.sh`
+- `restore-serv.py` / `SH/restore-serv.sh`
+- `restore-grub.py` / `SH/restore-grub.sh`
+- `restore-dots.py` / `SH/restore-dots.sh`
 
-## Daily backup (rsync)
+Other:
+- `.venv/` local Python environment (ignored by git)
+- `.gitignore`
+- `weather` (optional text appended to hyprlock)
 
-Scripts:
 
-- v2: `rsync/backup-rsync-v2.sh`, `rsync/backup-rsync-v2.py`
-- v3: `v3/backup-rsync-v3.sh`, `v3/backup-rsync-v3.py`
+Common Behavior
+---------------
+Pre-flight checks include:
+- Verify required commands are present (e.g., `rsync`, `mountpoint`).
+- Verify USB mount exists and is mounted.
+- Verify expected backup folders exist.
+- Ensure free space (backup scripts).
 
-What it does:
+Security and safety:
+- Some restore scripts require `sudo` and modify system files.
+- Config files are backed up before modification where possible.
+- Samba/SSH configs are validated before enabling services.
+- `rsync` partial/vanished-file return codes (23/24) are allowed on backups.
 
-- Backs up a curated set of user and system files.
-- Creates a compressed archive in a timestamped folder.
-- Logs are quiet on terminal; detailed logs go to the log file.
+Logging:
+- File logging has been removed; status/progress is printed to console.
+- In QUIET mode, stdout is suppressed but stderr still appears.
 
-## Full backup (SSD -> USB)
 
-Scripts:
+USB Layout (Expected)
+---------------------
+All scripts use the USB mount layout under:
+`/run/media/<user>/<label>/START`
 
-- v2: `full/backup-full-ssd-v2.sh`, `full/backup-full-ssd-v2.py`
-- v3: `v3/backup-full-ssd-v3.sh`, `v3/backup-full-ssd-v3.py`
+Current defaults:
+- User: `ralexander`
+- Label: `netac`
 
-What it does:
+Backup contents:
+- `START/home/` (user data)
+- `START/dots/` (dotfiles)
+- `START/Srv/` (system/service configs)
 
-- Creates a timestamped folder with `root/` + `home/`.
-- Creates `full-backup-<timestamp>.tar.gz`.
-- Stores a LUKS header backup (backup-only).
 
-Run (v3 example):
+Backup Scripts
+--------------
 
-```bash
-./v3/backup-full-ssd-v3.sh
-```
+1) backup-usb
+--------------
+Files:
+- `backup-usb.py`
+- `SH/backup-usb.sh`
 
-## Pre-reinstall USB backup + restore (BR/v2)
+Purpose:
+- Backup selected home folders, dotfiles, SSH keys, and system configs to USB.
+- Copies `restore-*` scripts into `START/` for easy access on the USB.
 
-Backup:
+Steps:
+- Auto-select `/run/media/ralexander/netac` if mounted; otherwise prompt.
+- Create `START/home`, `START/dots`, `START/Srv`.
+- Optionally save LUKS header.
+- `rsync` home folders and dotfiles with excludes.
+- Copy SSH keys into `START/Srv/ssh/.ssh`.
+- Copy system files into `START/Srv/...`.
 
-- `BR/v2/backup-usb-v2.sh`
-- `BR/v2/py/backup-usb-v2.py`
+Pre-flight:
+- Check free space (default 20GB).
+- Verify `rsync`, `sudo`, `cryptsetup` exist.
+- Verify mount is valid.
 
-Restore:
+Notes:
+- No timestamped subfolder is created; everything goes directly under `START/`.
 
-- `BR/v2/restore-main-v2.*`
-- `BR/v2/restore-dots-v2.*`
-- `BR/v2/restore-serv-v2.*`
-- `BR/v2/restore-grub-v2.*`
+Env vars:
+- `BKP_MIN_FREE_GB` (default `20`)
+- `BKP_LUKS_DEVICE` (default `/dev/nvme0n1p2`)
 
-Recommended order:
 
-1. Mount the USB at `/run/media/$USER/netac` (or set `BKP_USB_LABEL`).
-2. `restore-main-v2.*`
-3. `restore-dots-v2.*`
-4. `sudo restore-serv-v2.*`
-5. `sudo restore-grub-v2.*`
+2) backup-rsync
+---------------
+Files:
+- `backup-rsync.py`
+- `SH/backup-rsync.sh`
 
-## Notes
+Purpose:
+- Local backup into `/home/ralexander/Shared/ArchBKP`.
+- Optional archive via `tar + pigz`.
 
-- LUKS header backups are backup-only and never auto-restored.
-- `/etc/fstab` is backed up for reference only.
-- Restore scripts create safety backups before overwriting configs.
+Steps:
+- Copy system files to `root/`.
+- Copy user data to `home/` with excludes.
+- Backup SSH keys.
+- Optional archive creation.
 
-## Env overrides (Python)
+Env vars:
+- `BKP_CREATE_ARCHIVE` (default `n`)
 
-- `BKP_MIN_FREE_GB`
-- `BKP_LUKS_DEVICE`
-- `BKP_USB_LABEL` (v2 only)
 
+3) backup-full-ssd
+------------------
+Files:
+- `backup-full-ssd.py`
+- `SH/backup-full-ssd.sh`
+
+Purpose:
+- Full home backup + key system configs to USB.
+- Always uses a timestamped directory under the mount.
+
+Steps:
+- Auto-select `/run/media/ralexander/netac` if mounted; otherwise prompt.
+- Create timestamped target directory.
+- Save LUKS header if device exists.
+- `rsync` system files to `root/`.
+- `rsync` full home with excludes to `home/`.
+- Compress archive and prune old backups.
+
+Env vars:
+- `BKP_MIN_FREE_GB` (default `20`)
+- `BKP_LUKS_DEVICE` (default `/dev/nvme0n1p2`)
+
+
+Restore Scripts
+---------------
+
+1) restore-main
+---------------
+Files:
+- `restore-main.py`
+- `SH/restore-main.sh`
+
+Purpose:
+- Restore main user data + icons/themes + dotfiles.
+- Install fonts, yay, and ML4W dotfiles installer.
+
+Steps:
+- Locate `START` backup root (direct or latest subdir).
+- Restore Thunar UCA.
+- Restore selected user directories.
+- Restore icons/themes, dotfiles.
+- Run fonts installer:
+  1) `/run/media/<user>/<label>/BIG/fonts/install.sh` if present
+  2) fallback to `~/Shared/fonts/install.sh`
+- Install yay if on Arch.
+- Install ML4W via Flatpak (interactive).
+
+
+2) restore-serv
+---------------
+Files:
+- `restore-serv.py`
+- `SH/restore-serv.sh`
+
+Purpose:
+- Restore Samba and SSH configuration from `START/Srv`.
+- Recreate SMB shares and enable services.
+
+Steps:
+- Back up existing Samba config.
+- Install Samba config from backup.
+- Create `/SMB` tree with permissions.
+- Enable and validate Samba services.
+- Restore SSH keys/config, validate `sshd_config`.
+- Restart services and show status.
+
+Notes:
+- Requires root.
+- Uses `testparm` and `sshd -t` validation.
+
+
+3) restore-grub
+---------------
+Files:
+- `restore-grub.py`
+- `SH/restore-grub.sh`
+
+Purpose:
+- Restore GRUB theme and update GRUB defaults.
+
+Steps:
+- Back up `/etc/default/grub`.
+- Restore theme to `/boot/grub/themes`.
+- Set GRUB defaults (theme, gfxmode, cmdline).
+- Regenerate `/boot/grub/grub.cfg`.
+
+Notes:
+- Requires root.
+
+
+4) restore-dots
+---------------
+Files:
+- `restore-dots.py`
+- `SH/restore-dots.sh`
+
+Purpose:
+- Restore dotfiles and tweak Hyprland/ML4W settings.
+
+Highlights:
+- Hyprctl settings, keybindings, wallpapers symlink.
+- Hypridle + Hyprlock changes (fonts, sizes, align, custom text).
+- Append `weather` file content (if present) to hyprlock.
+- Restore ML4W settings files and theme configs.
+- Restore `matugen`, `cava`, `waybar` themes.
+- Link `~/.config/cava` to dotfiles `cava`.
+- Restore `rofi`, `wlogout`, `kitty`, `fastfetch`, `nvim`, `gtk`, etc.
+- Run ML4W shell script if present:
+  `~/.mydotfiles/com.ml4w.dotfiles.stable/.config/ml4w/scripts/shell.sh`
+
+
+Quick Start
+-----------
+1) Plug in USB so it mounts under `/run/media/ralexander/netac`.
+2) Run backup script:
+   - `python3 backup-usb.py`
+   - or `bash SH/backup-usb.sh`
+3) On restore machine, run the desired restore script:
+   - `python3 restore-main.py`
+   - `python3 restore-dots.py`
+   - `sudo python3 restore-serv.py`
+   - `sudo python3 restore-grub.py`
+
+
+Notes
+-----
+- These scripts are tuned for your user and folder structure.
+- Restore scripts can overwrite local config; backups are created where possible.
+- The Bash scripts should be made executable if used directly:
+  `chmod +x SH/*.sh`

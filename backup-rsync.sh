@@ -1,171 +1,156 @@
 #!/usr/bin/env bash
-set -euo pipefail
-IFS=$'\n\t'
 
-echo "------------------------------------------------------------------------------------"
+set -u
 
+QUIET=true
 TOTAL_STEPS=5
 STEP=0
-status() { printf '%s\n' "$*" >/dev/tty; }
+
+status() {
+  printf '%s\n' "$*"
+}
+
 progress() {
   STEP=$((STEP + 1))
-  printf '[%d/%d] %s\n' "$STEP" "$TOTAL_STEPS" "$*" >/dev/tty
+  status "[$STEP/$TOTAL_STEPS] $1"
 }
-err() { printf '[!] %s\n' "$*" >/dev/tty; }
 
-rsync_allow_partial() {
-  set +e
-  rsync "$@"
+err() {
+  printf '%s\n' "$*" >&2
+}
+
+run_cmd() {
+  if $QUIET; then
+    "$@" >/dev/null
+  else
+    "$@"
+  fi
+}
+
+run_rsync_allow_partial() {
+  "$@"
   local rc=$?
-  set -e
   if [[ $rc -ne 0 && $rc -ne 23 && $rc -ne 24 ]]; then
-    return $rc
+    return "$rc"
   fi
   if [[ $rc -eq 23 || $rc -eq 24 ]]; then
-    echo "[!] rsync completed with partial transfer (code $rc). Continuing."
+    err "[!] rsync completed with partial transfer (code 23/24). Continuing."
   fi
   return 0
 }
 
-TS=$(date '+%j-%Y-%H%M')
-BKP_BASE="/home/ralexander/Shared/ArchBKP"
-printf 'Create compressed archive? [y/N]: ' >/dev/tty
-read -r CREATE_ARCHIVE
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
 
-BKP_FOLDER="$BKP_BASE/$TS"
-BKP_TAR="$BKP_BASE/$TS.tar.gz"
-LOG_FILE="$BKP_BASE/backup-rsync-$TS.log"
-ROOT_DIR="$BKP_FOLDER/root"
-HOME_DIR="$BKP_FOLDER/home"
-
-cleanup() {
-  if [[ -f "$BKP_TAR" ]]; then
-    rm -f "$BKP_TAR"
+require_command() {
+  if ! command_exists "$1"; then
+    err "Missing required command: $1"
+    exit 1
   fi
 }
 
-trap 'err "Backup failed."; cleanup' ERR
+main() {
+  status "--------------------------------------------------------------------------------------------"
 
-##### Install pigz if it is not...
-if ! command -v pigz >/dev/null 2>&1; then
-  echo "pigz not found, installing..."
-  if command -v pacman >/dev/null 2>&1; then
-    if [[ $EUID -ne 0 ]]; then
-      sudo pacman -S --noconfirm pigz
+  local ts
+  ts="$(date '+%j-%Y-%H%M')"
+  local bkp_base="/home/ralexander/Shared/ArchBKP"
+  local create_archive="${BKP_CREATE_ARCHIVE:-n}"
+
+  local bkp_folder="${bkp_base}/${ts}"
+  local bkp_tar="${bkp_base}/${ts}.tar.gz"
+  local root_dir="${bkp_folder}/root"
+  local home_dir="${bkp_folder}/home"
+  local user
+  user="$(whoami)"
+  mkdir -p "$bkp_base" "$bkp_folder" "$root_dir" "$home_dir"
+
+  status "Backup start: $(date '+%Y-%m-%dT%H:%M:%S')"
+  status "Target: ${bkp_base}"
+
+  for cmd in rsync tar sudo; do
+    require_command "$cmd"
+  done
+
+  if ! command_exists pigz; then
+    if command_exists pacman; then
+      if [[ "${EUID}" -ne 0 ]]; then
+        run_cmd sudo pacman -S --noconfirm pigz
+      else
+        run_cmd pacman -S --noconfirm pigz
+      fi
     else
-      pacman -S --noconfirm pigz
+      err "pacman not available; install pigz manually."
+      exit 1
     fi
+  fi
+
+  if [[ ! -w "$bkp_base" ]]; then
+    err "Backup base not writable: ${bkp_base}"
+    exit 1
+  fi
+
+  progress "Pre-flight checks"
+
+  local system_items=(
+    "/boot/grub/themes/lateralus:${root_dir}"
+    "/etc/mkinitcpio.conf:${root_dir}/mkinitcpio.conf"
+    "/etc/default/grub:${root_dir}/grub"
+    "/usr/share/plymouth/plymouthd.defaults:${root_dir}/plymouthd.defaults"
+    "/etc/samba/smb.conf:${root_dir}/smb.conf"
+    "/etc/samba/euclid:${root_dir}/euclid"
+    "/etc/ssh/sshd_config:${root_dir}/sshd_config"
+    "/usr/lib/sddm/sddm.conf.d/default.conf:${root_dir}/default.conf"
+    "/etc/fstab:${root_dir}/fstab"
+  )
+
+  progress "System files"
+  local item src dest
+  for item in "${system_items[@]}"; do
+    src="${item%%:*}"
+    dest="${item##*:}"
+    [[ -e "$src" ]] || continue
+    mkdir -p "$(dirname "$dest")"
+    run_rsync_allow_partial sudo rsync -a --quiet "--chown=${user}:${user}" "$src" "$dest" || exit $?
+  done
+
+  local user_paths=("Documents" "Obsidian" "Working" "Code" ".icons" ".themes" ".config" ".zshrc" ".zsh_history" ".mydotfiles" ".gitconfig")
+  local excludes=(
+    ".cache/" ".var/app/" ".subversion/" ".mozilla/" ".local/share/fonts/"
+    ".vscode-oss/" "Trash/" ".config/*/Cache/" ".config/*/cache/" ".config/*/Code Cache/"
+    ".config/*/GPUCache/" ".config/*/CachedData/" ".config/*/CacheStorage/"
+    ".config/*/Service Worker/" ".config/*/IndexedDB/" ".config/*/Local Storage/"
+    ".local/share/fonts/NerdFonts/"
+  )
+
+  progress "User files"
+  local path
+  for path in "${user_paths[@]}"; do
+    src="${HOME}/${path}"
+    [[ -e "$src" ]] || continue
+    run_rsync_allow_partial rsync -a --human-readable --partial --partial-dir=.rsync-partial --quiet \
+      $(printf -- "--exclude=%s " "${excludes[@]}") \
+      "$src" "$home_dir" || exit $?
+  done
+
+  progress "SSH keys"
+  local ssh_dir="${HOME}/.ssh"
+  if [[ -d "$ssh_dir" ]]; then
+    run_rsync_allow_partial rsync -a --human-readable --partial --partial-dir=.rsync-partial --quiet \
+      --exclude=agent/ "${ssh_dir}/" "${home_dir}/.ssh/" || exit $?
+  fi
+
+  progress "Archive"
+  if [[ "${create_archive}" == "y" ]]; then
+    run_cmd tar --ignore-failed-read -I pigz -cf "$bkp_tar" -C "$bkp_base" "$ts"
+    status "Archive: ${bkp_tar}"
   else
-    echo "pacman not available; install pigz manually."
-    exit 1
+    status "Archive: skipped"
   fi
-else
-  echo "pigz already installed, continuing..."
-fi
 
-### Start BKP
-mkdir -p "$BKP_BASE" "$BKP_FOLDER" "$ROOT_DIR" "$HOME_DIR"
-exec >>"$LOG_FILE" 2>&1
-status "Backup start: $(date -Is)"
-status "Log: $LOG_FILE"
-status "Target: $BKP_BASE"
+  status "Backup done."
+  status "Target: ${bkp_base}"
+}
 
-##### Prereqs
-REQUIRED_CMDS=(rsync tar sudo)
-for cmd in "${REQUIRED_CMDS[@]}"; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    err "Missing required command: $cmd"
-    exit 1
-  fi
-done
-
-if [[ ! -w "$BKP_BASE" ]]; then
-  err "Backup base not writable: $BKP_BASE"
-  exit 1
-fi
-
-progress "Pre-flight checks"
-##### System files (with sudo)
-progress "System files"
-SYSTEM_ITEMS=(
-  "/boot/grub/themes/lateralus:$ROOT_DIR"
-  "/etc/mkinitcpio.conf:$ROOT_DIR/mkinitcpio.conf"
-  "/etc/default/grub:$ROOT_DIR/grub"
-  "/usr/share/plymouth/plymouthd.defaults:$ROOT_DIR/plymouthd.defaults"
-  "/etc/samba/smb.conf:$ROOT_DIR/smb.conf"
-  "/etc/samba/euclid:$ROOT_DIR/euclid"
-  "/etc/ssh/sshd_config:$ROOT_DIR/sshd_config"
-  "/usr/lib/sddm/sddm.conf.d/default.conf:$ROOT_DIR/default.conf"
-  "/etc/fstab:$ROOT_DIR/fstab"
-)
-
-for item in "${SYSTEM_ITEMS[@]}"; do
-  src=${item%%:*}
-  dest=${item#*:}
-  if [[ ! -e "$src" ]]; then
-    echo "Skipping missing $src"
-    continue
-  fi
-  echo "Backing up $src..."
-  mkdir -p "$(dirname "$dest")"
-  sudo rsync -a --quiet --chown="$USER:$USER" "$src" "$dest"
-done
-
-##### User files (except .ssh, handled separately)
-progress "User files"
-RSYNC_OPTS=(--human-readable --partial --partial-dir=.rsync-partial --quiet)
-EXCLUDES=(
-  ".config/*/Cache/"
-  ".config/*/cache/"
-  ".config/*/Code Cache/"
-  ".config/*/GPUCache/"
-  ".config/*/CachedData/"
-  ".config/*/CacheStorage/"
-  ".config/*/Service Worker/"
-  ".config/*/IndexedDB/"
-  ".config/*/Local Storage/"
-)
-EXCLUDE_ARGS=()
-for pattern in "${EXCLUDES[@]}"; do
-  EXCLUDE_ARGS+=(--exclude="$pattern")
-done
-USER_PATHS=(Documents Obsidian Working Code .icons .themes .config .zshrc .zsh_history .mydotfiles .gitconfig)
-
-for path in "${USER_PATHS[@]}"; do
-  if [[ ! -e "$HOME/$path" ]]; then
-    echo "Skipping missing $HOME/$path"
-    continue
-  fi
-  echo "Backing up $HOME/$path..."
-  rsync_allow_partial -a \
-    "${RSYNC_OPTS[@]}" \
-    "${EXCLUDE_ARGS[@]}" \
-    "$HOME/$path" "$HOME_DIR/"
-done
-
-##### .ssh with exclude for agent/
-progress "SSH keys"
-if [[ -d "$HOME/.ssh" ]]; then
-  echo "Backing up $HOME/.ssh (excluding agent/)..."
-  rsync_allow_partial -a \
-    "${RSYNC_OPTS[@]}" \
-    --exclude 'agent/' \
-    "$HOME/.ssh/" "$HOME_DIR/.ssh/"
-else
-  echo "Skipping missing $HOME/.ssh"
-fi
-
-##### Start bully the backup
-progress "Archive"
-if [[ "$CREATE_ARCHIVE" =~ ^[Yy]$ ]]; then
-  echo "Compressing backup to $BKP_TAR ..."
-  tar --ignore-failed-read -I pigz -cf "$BKP_TAR" -C "$BKP_BASE" "$TS"
-  ARCHIVE_STATUS="$BKP_TAR"
-else
-  ARCHIVE_STATUS="skipped"
-fi
-
-status "Backup done."
-status "Target: $BKP_BASE"
-status "Archive: $ARCHIVE_STATUS"
-status "Log: $LOG_FILE"
+main "$@"
