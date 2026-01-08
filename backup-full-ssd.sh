@@ -234,6 +234,7 @@ main() {
     --exclude=.config/*/IndexedDB/ \
     --exclude=.config/*/Local\ Storage/ \
     --exclude=.config/rambox/ \
+    --exclude=Shared/ArchBKP/ \
     --exclude=.ssh/agent/ \
     "${src_home}/" "${home_dir}/" || exit $?
 

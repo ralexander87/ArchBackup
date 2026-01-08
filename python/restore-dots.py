@@ -269,9 +269,9 @@ def main():
     settings_dir = os.path.join(dots, "ml4w", "settings")
     os.makedirs(settings_dir, exist_ok=True)
     for fname, content in [
-        ("screenshot-folder.sh", 'screenshot_folder="$HOME/Pictures/SC"\n'),
-        ("screenshot-editor.sh", "swappy -f\n"),
-        ("filemanager.sh", "thunar\n"),
+        ("screenshot-folder", 'screenshot_folder="$HOME/Pictures/SC"\n'),
+        ("screenshot-editor", "swappy -f\n"),
+        ("filemanager, "thunar\n"),
         ("rofi-border-radius.rasi", "* { border-radius: 0em; }\n"),
         ("rofi-border.rasi", "* { border-width: 0px; }\n"),
         ("rofi_bordersize.sh", "0\n"),

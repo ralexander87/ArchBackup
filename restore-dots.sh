@@ -281,11 +281,11 @@ main() {
   local settings_dir="${dots}/ml4w/settings"
   mkdir -p "$settings_dir"
   local fname content
-  for fname in screenshot-folder.sh screenshot-editor.sh filemanager.sh rofi-border-radius.rasi rofi-border.rasi rofi_bordersize.sh rofi-font.rasi; do
+  for fname in screenshot-folder screenshot-editor filemanager rofi-border-radius.rasi rofi-border.rasi rofi_bordersize.sh rofi-font.rasi; do
     case "$fname" in
-      screenshot-folder.sh) content='screenshot_folder="$HOME/Pictures/SC"' ;;
-      screenshot-editor.sh) content='swappy -f' ;;
-      filemanager.sh) content='thunar' ;;
+      screenshot-folder) content='screenshot_folder="$HOME/Pictures/SC"' ;;
+      screenshot-editor) content='swappy -f' ;;
+      filemanager) content='thunar' ;;
       rofi-border-radius.rasi) content='* { border-radius: 0em; }' ;;
       rofi-border.rasi) content='* { border-width: 0px; }' ;;
       rofi_bordersize.sh) content='0' ;;

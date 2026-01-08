@@ -265,6 +265,7 @@ def main():
             "--exclude=.config/*/IndexedDB/",
             "--exclude=.config/*/Local Storage/",
             "--exclude=.config/rambox/",
+            "--exclude=Shared/ArchBKP/",
             "--exclude=.ssh/agent/",
             f"{src_home}/",
             f"{home_dir}/",

@@ -125,6 +125,7 @@ main() {
     ".config/*/cache/" ".config/*/Code Cache/" ".config/*/GPUCache/" ".config/*/CachedData/"
     ".config/*/CacheStorage/" ".config/*/Service Worker/" ".config/*/IndexedDB/" ".config/*/Local Storage/"
     ".config/rambox/"
+    "Shared/ArchBKP/"
   )
 
   if ! command_exists mountpoint; then

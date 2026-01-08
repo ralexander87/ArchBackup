@@ -164,6 +164,7 @@ def main():
         ".config/*/IndexedDB/",
         ".config/*/Local Storage/",
         ".config/rambox/",
+        "Shared/ArchBKP/",
     ]
     exclude_args = [f"--exclude={pattern}" for pattern in excludes]
 
