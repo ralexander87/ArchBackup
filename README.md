@@ -1,4 +1,4 @@
-Backup/Restore Scripts
+PY Backup/Restore Scripts
 =========================
 
 Overview
@@ -23,6 +23,10 @@ Directory Layout
 - `restore-serv.py` / `SH/restore-serv.sh`
 - `restore-grub.py` / `SH/restore-grub.sh`
 - `restore-dots.py` / `SH/restore-dots.sh`
+
+Other:
+- `.venv/` local Python environment (ignored by git)
+- `.gitignore`
 
 
 Common Behavior
@@ -87,6 +91,7 @@ Pre-flight:
 
 Notes:
 - No timestamped subfolder is created; everything goes directly under `START/`.
+- Excludes include `.config/rambox/` and `Shared/ArchBKP/`.
 
 Env vars:
 - `BKP_MIN_FREE_GB` (default `20`)
@@ -214,8 +219,9 @@ Purpose:
 
 Highlights:
 - Hyprctl settings, keybindings, wallpapers symlink.
-- Hypridle + Hyprlock changes (fonts, sizes, align, custom text).
-- Append `weather` file content (if present) to hyprlock.
+- Hypridle changes.
+- Hyprlock is copied from backup without edits.
+- Copy `hypr/logo-2.png` and `hypr/scripts/uptime.sh`.
 - Restore ML4W settings files and theme configs.
 - Restore `matugen`, `cava`, `waybar` themes.
 - Link `~/.config/cava` to dotfiles `cava`.
@@ -243,3 +249,4 @@ Notes
 - Restore scripts can overwrite local config; backups are created where possible.
 - The Bash scripts should be made executable if used directly:
   `chmod +x SH/*.sh`
+
