@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 QUIET=true
 TOTAL_STEPS=5
@@ -70,7 +70,9 @@ list_mounts() {
 }
 
 select_target() {
-  local preferred="/run/media/ralexander/netac"
+  local user="${SUDO_USER:-${USER:-$(whoami)}}"
+  local label="${BKP_USB_LABEL:-netac}"
+  local preferred="/run/media/${user}/${label}"
   local mounts
   mounts="$(list_mounts)"
   if [[ -z "$mounts" ]]; then
@@ -101,12 +103,23 @@ main() {
   status "--------------------------------------------------------------------------------------------"
   umask 077
 
+  # Prevent concurrent runs.
+  local lock_dir="/tmp/backup-usb-v3"
+  local lock_file="${lock_dir}/backup-usb.lock"
+  mkdir -p "$lock_dir"
+  if ! ( set -o noclobber; : >"$lock_file" ) 2>/dev/null; then
+    err "Backup already running (lock: ${lock_file})."
+    exit 1
+  fi
+  trap 'rm -f "$lock_file"' EXIT INT TERM
+
   local mountpoint
   mountpoint="$(select_target)"
 
   local base_root="${mountpoint}/START"
   mkdir -p "$base_root"
 
+  # Stage restore scripts alongside the backup payload.
   for script in /home/ralexander/Code/PY/PY/restore-*; do
     if [[ -f "$script" ]]; then
       cp -a "$script" "$base_root/"
@@ -125,8 +138,14 @@ main() {
     ".config/*/cache/" ".config/*/Code Cache/" ".config/*/GPUCache/" ".config/*/CachedData/"
     ".config/*/CacheStorage/" ".config/*/Service Worker/" ".config/*/IndexedDB/" ".config/*/Local Storage/"
     ".config/rambox/"
+    ".rustup/"
     "Shared/ArchBKP/"
   )
+  local exclude_args=()
+  local ex
+  for ex in "${excludes[@]}"; do
+    exclude_args+=("--exclude=${ex}")
+  done
 
   if ! command_exists mountpoint; then
     err "Missing required command: mountpoint"
@@ -166,7 +185,8 @@ main() {
     exit 1
   fi
 
-  local luks_header_file="${usb}/luks-header-$(date '+%j-%Y-%H%M').img"
+  local luks_header_file
+  luks_header_file="${usb}/luks-header-$(date '+%j-%Y-%H%M').img"
   if [[ -e "$luks_device" ]]; then
     run_cmd sudo cryptsetup luksHeaderBackup "$luks_device" --header-backup-file "$luks_header_file"
   fi
@@ -177,14 +197,14 @@ main() {
     local src="${HOME}/${d}"
     [[ -e "$src" ]] || continue
     run_rsync_allow_partial rsync -arh --quiet --partial --partial-dir=.rsync-partial \
-      $(printf -- "--exclude=%s " "${excludes[@]}") \
+      "${exclude_args[@]}" \
       "$src" "${usb}/home" || exit $?
   done
 
   progress "Dotfiles and SSH"
   if [[ -d "$dots" ]]; then
     run_rsync_allow_partial rsync -arh --quiet --partial --partial-dir=.rsync-partial \
-      $(printf -- "--exclude=%s " "${excludes[@]}") \
+      "${exclude_args[@]}" \
       "$dots" "${usb}/dots" || exit $?
   fi
 

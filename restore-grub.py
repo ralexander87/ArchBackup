@@ -25,6 +25,7 @@ def progress(msg):
 def err(msg):
     print(msg, file=sys.stderr)
 
+
 def run(cmd, check=True):
     if QUIET:
         return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL)
@@ -38,7 +39,9 @@ def command_exists(cmd):
 def ensure_root():
     if os.geteuid() != 0:
         script = os.path.abspath(sys.argv[0])
-        os.execvp("sudo", ["sudo", "-E", sys.executable, script] + sys.argv[1:])
+        os.execvp(
+            "sudo", ["sudo", "-E", sys.executable, script] + sys.argv[1:]
+        )
 
 
 def replace_or_append(lines, key, value):
@@ -63,7 +66,10 @@ def replace_or_append(lines, key, value):
 
 def resolve_backup_root(base_root, required):
     def has_required(path):
-        return all(os.path.exists(os.path.join(path, name)) for name in required)
+        return all(
+            os.path.exists(os.path.join(path, name)) for name in required
+        )
+
     if has_required(base_root):
         return base_root
     try:
@@ -85,7 +91,11 @@ def main():
     ensure_root()
 
     # Locate backup root and required GRUB theme files.
-    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
+    user = (
+        os.environ.get("SUDO_USER")
+        or os.environ.get("USER")
+        or getpass.getuser()
+    )
     usb_label = os.environ.get("BKP_USB_LABEL", "netac")
     usb_mount = f"/run/media/{user}/{usb_label}"
     base_root = os.path.join(usb_mount, "START")
@@ -93,7 +103,10 @@ def main():
         err("Error: mountpoint not found.")
         sys.exit(1)
     if run(["mountpoint", "-q", usb_mount], check=False).returncode != 0:
-        err(f"Error: {usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
+        err(
+            f"Error: {usb_mount} is not a mountpoint. "
+            "Is the USB plugged in and mounted?"
+        )
         sys.exit(1)
     # Find the backup root that contains Srv.
     backup_root = resolve_backup_root(base_root, ["Srv"])
@@ -103,8 +116,8 @@ def main():
     srv = os.path.join(backup_root, "Srv")
     theme = os.path.join(srv, "grub", "lateralus")
     grub_default = "/etc/default/grub"
-    backup = f"/etc/default/grub.bak.{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
     ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    backup = f"/etc/default/grub.bak.{ts}"
     backup_dir = f"/var/backups/restore-grub-{ts}"
 
     if not os.path.isfile(grub_default):
@@ -120,16 +133,30 @@ def main():
         err("Error: grub-mkconfig not found in PATH.")
         sys.exit(1)
 
-    # Keep a backup of current settings and theme.
+    # Keep a backup of current settings and theme before changing GRUB.
     os.makedirs(backup_dir, exist_ok=True)
     try:
         status(f"Restore GRUB start: {datetime.datetime.now().isoformat()}")
         progress("Backup defaults")
         shutil.copy2(grub_default, backup)
+        shutil.copy2(grub_default, os.path.join(backup_dir, "grub.default"))
+        if os.path.isfile("/boot/grub/grub.cfg"):
+            shutil.copy2(
+                "/boot/grub/grub.cfg",
+                os.path.join(backup_dir, "grub.cfg"),
+            )
 
         os.makedirs("/boot/grub/themes", exist_ok=True)
         if os.path.isdir("/boot/grub/themes/lateralus"):
-            run(["rsync", "-a", "--quiet", "/boot/grub/themes/lateralus/", f"{backup_dir}/lateralus/"])
+            run(
+                [
+                    "rsync",
+                    "-a",
+                    "--quiet",
+                    "/boot/grub/themes/lateralus/",
+                    f"{backup_dir}/lateralus/",
+                ]
+            )
 
         # Restore theme files from backup media.
         progress("Restore theme")
@@ -139,9 +166,13 @@ def main():
             lines = fh.readlines()
 
         # Ensure required GRUB settings are present.
-        lines = replace_or_append(lines, "GRUB_CMDLINE_LINUX_DEFAULT", "loglevel=3 quiet splash")
+        lines = replace_or_append(
+            lines, "GRUB_CMDLINE_LINUX_DEFAULT", "loglevel=3 quiet splash"
+        )
         lines = replace_or_append(lines, "GRUB_GFXMODE", "1440x1080x32")
-        lines = replace_or_append(lines, "GRUB_THEME", "/boot/grub/themes/lateralus/theme.txt")
+        lines = replace_or_append(
+            lines, "GRUB_THEME", "/boot/grub/themes/lateralus/theme.txt"
+        )
         lines = replace_or_append(lines, "GRUB_TERMINAL_OUTPUT", "gfxterm")
 
         with open(grub_default, "w", encoding="utf-8") as fh:

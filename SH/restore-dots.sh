@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 QUIET=true
 TOTAL_STEPS=4
@@ -101,16 +101,24 @@ resolve_backup_root() {
     printf '%s\n' "$base_root"
     return 0
   fi
+  local newest=""
+  local newest_mtime=0
   local candidate
   for candidate in "$base_root"/*/; do
-    if [[ ! -d "$candidate" ]]; then
-      continue
-    fi
+    [[ -d "$candidate" ]] || continue
     if has_required "${candidate%/}" "${required[@]}"; then
-      printf '%s\n' "${candidate%/}"
-      return 0
+      local mtime
+      mtime=$(stat -c %Y "$candidate" 2>/dev/null || echo 0)
+      if [[ "$mtime" -gt "$newest_mtime" ]]; then
+        newest_mtime="$mtime"
+        newest="$candidate"
+      fi
     fi
   done
+  if [[ -n "$newest" ]]; then
+    printf '%s\n' "${newest%/}"
+    return 0
+  fi
   return 1
 }
 
@@ -156,7 +164,9 @@ main() {
   fi
 
 # Local backup directoory
-  local backup_dir="${user_home}/.mydotfiles/restore-dots-backup-$(date '+%Y%m%d%H%M%S')"
+  # Back up existing dotfiles before overwriting.
+  local backup_dir
+  backup_dir="${user_home}/.mydotfiles/restore-dots-backup-$(date '+%Y%m%d%H%M%S')"
   mkdir -p "$backup_dir"
   local restored_items=()
   local backed_up_items=()
@@ -263,7 +273,7 @@ main() {
   progress "Hyprland config"
   mkdir -p "${hypr}/environments" "${hypr}/animations" "${hypr}/decorations" "${hypr}/layouts" "${hypr}/monitors" "${hypr}/windows"
 
-# Add nVidia enviroments
+# Add nVidia enviroments and then rewire Hyprland configs.
   local nvidia_conf="${hypr}/environments/nvidia.conf"
   if [[ -f "$nvidia_conf" ]]; then
     if name="$(backup_path "$nvidia_conf" "$backup_dir" "nvidia.conf")"; then
@@ -300,7 +310,7 @@ main() {
   local fname content
   for fname in screenshot-folder screenshot-editor filemanager rofi-border-radius.rasi rofi-border.rasi rofi_bordersize.sh rofi-font.rasi; do
     case "$fname" in
-      screenshot-folder) content='screenshot_folder="$HOME/Pictures/SC"' ;;
+      screenshot-folder) content="screenshot_folder=\"\$HOME/Pictures/SC\"" ;;
       screenshot-editor) content='swappy -f' ;;
       filemanager) content='thunar' ;;
       rofi-border-radius.rasi) content='* { border-radius: 0em; }' ;;

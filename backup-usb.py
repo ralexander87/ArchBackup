@@ -44,7 +44,10 @@ def run_rsync_allow_partial(cmd):
     if rc not in (0, 23, 24):
         raise subprocess.CalledProcessError(rc, cmd)
     if rc in (23, 24):
-        err("[!] rsync completed with partial transfer (code 23/24). Continuing.")
+        err(
+            "[!] rsync completed with partial transfer "
+            "(code 23/24). Continuing."
+        )
     return rc
 
 
@@ -61,7 +64,11 @@ def make_executable(path):
 
 
 def list_mounts():
-    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
+    user = (
+        os.environ.get("SUDO_USER")
+        or os.environ.get("USER")
+        or getpass.getuser()
+    )
     proc = subprocess.run(
         ["lsblk", "-P", "-o", "NAME,MOUNTPOINT,TRAN,SIZE,MODEL,TYPE"],
         text=True,
@@ -96,13 +103,25 @@ def select_target():
     if not mounts:
         err("No mounted external devices found under /run/media or /media.")
         sys.exit(1)
-    preferred = "/run/media/ralexander/netac"
+    user = (
+        os.environ.get("SUDO_USER")
+        or os.environ.get("USER")
+        or getpass.getuser()
+    )
+    label = os.environ.get("BKP_USB_LABEL", "netac")
+    preferred = f"/run/media/{user}/{label}"
     for m in mounts:
         if m.get("MOUNTPOINT") == preferred:
             return preferred
     print("Select target device:")
     for i, m in enumerate(mounts, 1):
-        desc = f"{m['MOUNTPOINT']} ({m.get('NAME','?')}, {m.get('SIZE','?')}, {m.get('TRAN','?')}, {m.get('MODEL','unknown')})"
+        desc = (
+            f"{m['MOUNTPOINT']} ("
+            f"{m.get('NAME', '?')}, "
+            f"{m.get('SIZE', '?')}, "
+            f"{m.get('TRAN', '?')}, "
+            f"{m.get('MODEL', 'unknown')})"
+        )
         print(f"  {i}) {desc}")
     choice = input("Enter number: ").strip()
     if not choice.isdigit() or not (1 <= int(choice) <= len(mounts)):
@@ -119,6 +138,7 @@ def main():
 
     base_root = os.path.join(mountpoint, "START")
     os.makedirs(base_root, exist_ok=True)
+    # Stage restore scripts alongside the backup payload.
     for script in glob.glob("/home/ralexander/Code/PY/PY/restore-*"):
         if os.path.isfile(script):
             shutil.copy2(script, base_root)
@@ -129,7 +149,9 @@ def main():
     min_free_gb = int(os.environ.get("BKP_MIN_FREE_GB", "20"))
     luks_device = os.environ.get("BKP_LUKS_DEVICE", "/dev/nvme0n1p2")
     srv = os.path.join(usb, "Srv")
-    dots = os.path.expanduser("~/.mydotfiles/com.ml4w.dotfiles.stable/.config/")
+    dots = os.path.expanduser(
+        "~/.mydotfiles/com.ml4w.dotfiles.stable/.config/"
+    )
     dirs = [
         "Documents",
         "Pictures",
@@ -165,6 +187,7 @@ def main():
         ".config/*/Local Storage/",
         ".config/rambox/",
         "Shared/ArchBKP/",
+        ".rustup/",
     ]
     exclude_args = [f"--exclude={pattern}" for pattern in excludes]
 
@@ -199,13 +222,26 @@ def main():
 
         free_gb = shutil.disk_usage(mountpoint).free // (1024**3)
         if free_gb < min_free_gb:
-            err(f"Not enough free space on {mountpoint}: {free_gb}G available, need {min_free_gb}G")
+            err(
+                f"Not enough free space on {mountpoint}: "
+                f"{free_gb}G available, need {min_free_gb}G"
+            )
             sys.exit(1)
 
-        luks_header_file = os.path.join(usb, f"luks-header-{datetime.datetime.now().strftime('%j-%Y-%H%M')}.img")
+        header_ts = datetime.datetime.now().strftime("%j-%Y-%H%M")
+        luks_header_file = os.path.join(usb, f"luks-header-{header_ts}.img")
 
         if os.path.exists(luks_device):
-            run(["sudo", "cryptsetup", "luksHeaderBackup", luks_device, "--header-backup-file", luks_header_file])
+            run(
+                [
+                    "sudo",
+                    "cryptsetup",
+                    "luksHeaderBackup",
+                    luks_device,
+                    "--header-backup-file",
+                    luks_header_file,
+                ]
+            )
         else:
             pass
 
@@ -267,7 +303,9 @@ def main():
         if os.path.isdir(cursor_dir):
             run(["cp", "-r", cursor_dir, os.path.join(usb, "home")])
 
-        hyprctl = os.path.expanduser("~/.config/com.ml4w.hyprlandsettings/hyprctl.json")
+        hyprctl = os.path.expanduser(
+            "~/.config/com.ml4w.hyprlandsettings/hyprctl.json"
+        )
         if os.path.isfile(hyprctl):
             run(["cp", hyprctl, os.path.join(usb, "dots")])
 
@@ -275,11 +313,14 @@ def main():
         if os.path.isfile(uca):
             run(["cp", uca, os.path.join(usb, "dots")])
 
+        # System files required for GRUB/Samba/SSH restores.
         system_paths = {
             "/boot/grub/themes/lateralus": os.path.join(srv, "grub") + "/",
             "/etc/default/grub": os.path.join(srv, "grub") + "/",
             "/etc/mkinitcpio.conf": os.path.join(srv, "mkinitcpio.conf"),
-            "/usr/share/plymouth/plymouthd.defaults": os.path.join(srv, "plymouthd.defaults"),
+            "/usr/share/plymouth/plymouthd.defaults": os.path.join(
+                srv, "plymouthd.defaults"
+            ),
             "/etc/samba/smb.conf": os.path.join(srv, "samba", "smb.conf"),
             "/etc/samba/euclid": os.path.join(srv, "samba", "euclid"),
             "/etc/ssh/sshd_config": os.path.join(srv, "ssh", "sshd_config"),
@@ -290,7 +331,9 @@ def main():
         for src, dest in system_paths.items():
             if not os.path.exists(src):
                 continue
-            run_rsync_allow_partial(["sudo", "rsync", "-a", "--quiet", src, dest])
+            run_rsync_allow_partial(
+                ["sudo", "rsync", "-a", "--quiet", src, dest]
+            )
 
         summary("Backup done.")
         summary(f"Target: {usb}")

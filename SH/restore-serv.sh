@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 QUIET=true
 TOTAL_STEPS=4
@@ -76,16 +76,24 @@ resolve_backup_root() {
     printf '%s\n' "$base_root"
     return 0
   fi
+  local newest=""
+  local newest_mtime=0
   local candidate
   for candidate in "$base_root"/*/; do
-    if [[ ! -d "$candidate" ]]; then
-      continue
-    fi
+    [[ -d "$candidate" ]] || continue
     if has_required "${candidate%/}" "${required[@]}"; then
-      printf '%s\n' "${candidate%/}"
-      return 0
+      local mtime
+      mtime=$(stat -c %Y "$candidate" 2>/dev/null || echo 0)
+      if [[ "$mtime" -gt "$newest_mtime" ]]; then
+        newest_mtime="$mtime"
+        newest="$candidate"
+      fi
     fi
   done
+  if [[ -n "$newest" ]]; then
+    printf '%s\n' "${newest%/}"
+    return 0
+  fi
   return 1
 }
 
@@ -157,9 +165,15 @@ main() {
   run_cmd_no_check modprobe cifs
 
   progress "Samba config"
-  # Backup existing Samba config and apply new one.
+  # Backup existing Samba/SSH config before applying new ones.
   if [[ -d "/etc/samba" ]]; then
     run_cmd rsync -a --quiet /etc/samba/ "${backup_dir}/etc-samba/"
+  fi
+  if [[ -d "/etc/ssh" ]]; then
+    run_cmd rsync -a --quiet /etc/ssh/ "${backup_dir}/etc-ssh/"
+  fi
+  if [[ -f "/etc/ssh/sshd_config" ]]; then
+    cp -a /etc/ssh/sshd_config "${backup_dir}/sshd_config"
   fi
 
   local smb_conf_bak="/etc/samba/smb.conf.${ts}.bak"

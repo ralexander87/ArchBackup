@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 QUIET=true
 TOTAL_STEPS=5
@@ -52,6 +52,16 @@ require_command() {
 
 main() {
   status "--------------------------------------------------------------------------------------------"
+
+  # Prevent concurrent runs.
+  local lock_dir="/tmp/backup-rsync-v3"
+  local lock_file="${lock_dir}/backup-rsync.lock"
+  mkdir -p "$lock_dir"
+  if ! ( set -o noclobber; : >"$lock_file" ) 2>/dev/null; then
+    err "Backup already running (lock: ${lock_file})."
+    exit 1
+  fi
+  trap 'rm -f "$lock_file"' EXIT INT TERM
 
   local ts
   ts="$(date '+%j-%Y-%H%M')"
@@ -122,8 +132,14 @@ main() {
     ".config/*/GPUCache/" ".config/*/CachedData/" ".config/*/CacheStorage/"
     ".config/*/Service Worker/" ".config/*/IndexedDB/" ".config/*/Local Storage/"
     ".config/rambox/"
+    ".rustup/"
     ".local/share/fonts/NerdFonts/"
   )
+  local exclude_args=()
+  local ex
+  for ex in "${excludes[@]}"; do
+    exclude_args+=("--exclude=${ex}")
+  done
 
   progress "User files"
   local path
@@ -131,7 +147,7 @@ main() {
     src="${HOME}/${path}"
     [[ -e "$src" ]] || continue
     run_rsync_allow_partial rsync -a --human-readable --partial --partial-dir=.rsync-partial --quiet \
-      $(printf -- "--exclude=%s " "${excludes[@]}") \
+      "${exclude_args[@]}" \
       "$src" "$home_dir" || exit $?
   done
 

@@ -76,7 +76,10 @@ def regex_replace_in_file(path, pattern, repl):
 
 def resolve_backup_root(base_root, required):
     def has_required(path):
-        return all(os.path.exists(os.path.join(path, name)) for name in required)
+        return all(
+            os.path.exists(os.path.join(path, name)) for name in required
+        )
+
     if has_required(base_root):
         return base_root
     try:
@@ -95,24 +98,37 @@ def resolve_backup_root(base_root, required):
 
 
 def main():
-    run_as_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or getpass.getuser()
+    run_as_user = (
+        os.environ.get("SUDO_USER")
+        or os.environ.get("USER")
+        or getpass.getuser()
+    )
     user_home = os.path.expanduser(f"~{run_as_user}")
     usb_label = os.environ.get("BKP_USB_LABEL", "netac")
-    usb_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or run_as_user
+    usb_user = (
+        os.environ.get("SUDO_USER") or os.environ.get("USER") or run_as_user
+    )
     usb_mount = f"/run/media/{usb_user}/{usb_label}"
     base_root = os.path.join(usb_mount, "START")
     if not command_exists("mountpoint"):
         err("ERROR: mountpoint not found.")
         sys.exit(1)
     if run(["mountpoint", "-q", usb_mount], check=False).returncode != 0:
-        err(f"ERROR: {usb_mount} is not a mountpoint. Is the USB plugged in and mounted?")
+        err(
+            f"ERROR: {usb_mount} is not a mountpoint. "
+            "Is the USB plugged in and mounted?"
+        )
         sys.exit(1)
     backup_root = resolve_backup_root(base_root, ["dots"])
     if not backup_root:
-        print(f"ERROR: backup root not found under {base_root}", file=sys.stderr)
+        print(
+            f"ERROR: backup root not found under {base_root}", file=sys.stderr
+        )
         sys.exit(1)
     src = os.path.join(backup_root, "dots")
-    dots = os.path.join(user_home, ".mydotfiles", "com.ml4w.dotfiles.stable", ".config")
+    dots = os.path.join(
+        user_home, ".mydotfiles", "com.ml4w.dotfiles.stable", ".config"
+    )
     hypr = os.path.join(dots, "hypr", "conf")
 
     status(f"Restore dots start: {datetime.now().isoformat()}")
@@ -126,8 +142,11 @@ def main():
         sys.exit(1)
 
     # Local backup directoory
+    # Back up existing dotfiles before overwriting.
     backup_dir = os.path.join(
-        user_home, ".mydotfiles", f"restore-dots-backup-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        user_home,
+        ".mydotfiles",
+        f"restore-dots-backup-{datetime.now().strftime('%Y%m%d%H%M%S')}",
     )
     os.makedirs(backup_dir, exist_ok=True)
     restored_items = []
@@ -135,26 +154,52 @@ def main():
 
     # Remove PintaProject
     if command_exists("flatpak"):
-        run(["flatpak", "uninstall", "-y", "com.github.PintaProject.Pinta", "com.ml4w.calendar"], check=False)
+        run(
+            [
+                "flatpak",
+                "uninstall",
+                "-y",
+                "com.github.PintaProject.Pinta",
+                "com.ml4w.calendar",
+            ],
+            check=False,
+        )
 
     # Hyprctl settings foor ML4w
     progress("Core settings")
-    os.makedirs(os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings"), exist_ok=True)
+    os.makedirs(
+        os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings"),
+        exist_ok=True,
+    )
     hyprctl_src = os.path.join(src, "hyprctl.json")
     if os.path.isfile(hyprctl_src):
-        shutil.copy2(hyprctl_src, os.path.join(user_home, ".config", "com.ml4w.hyprlandsettings", "hyprctl.json"))
+        shutil.copy2(
+            hyprctl_src,
+            os.path.join(
+                user_home,
+                ".config",
+                "com.ml4w.hyprlandsettings",
+                "hyprctl.json",
+            ),
+        )
         restored_items.append("hyprctl.json")
 
     # My keybinds
     os.makedirs(os.path.join(hypr, "keybindings"), exist_ok=True)
     kb_src = os.path.join(src, "hypr", "conf", "keybindings", "lateralus.conf")
     if os.path.isfile(kb_src):
-        shutil.copy2(kb_src, os.path.join(hypr, "keybindings", "lateralus.conf"))
+        shutil.copy2(
+            kb_src, os.path.join(hypr, "keybindings", "lateralus.conf")
+        )
         keybinding_conf = os.path.join(hypr, "keybinding.conf")
         if os.path.isfile(keybinding_conf):
-            backed_up_items.append(backup_path(keybinding_conf, backup_dir, "keybinding.conf"))
+            backed_up_items.append(
+                backup_path(keybinding_conf, backup_dir, "keybinding.conf")
+            )
         with open(keybinding_conf, "w", encoding="utf-8") as fh:
-            fh.write("source = ~/.config/hypr/conf/keybindings/lateralus.conf\n")
+            fh.write(
+                "source = ~/.config/hypr/conf/keybindings/lateralus.conf\n"
+            )
         restored_items.append("hypr/keybindings/lateralus.conf")
 
     # Wallpaper ln from Pictures to ml4w destination
@@ -175,10 +220,17 @@ def main():
     # Hypridle changes
     hypridle = os.path.join(dots, "hypr", "hypridle.conf")
     if os.path.isfile(hypridle):
-        backed_up_items.append(backup_path(hypridle, backup_dir, "hypridle.conf"))
+        backed_up_items.append(
+            backup_path(hypridle, backup_dir, "hypridle.conf")
+        )
         replace_in_file(
             hypridle,
-            [("480", "5200"), ("600", "5600"), ("660", "5660"), ("1800", "6000")],
+            [
+                ("480", "5200"),
+                ("600", "5600"),
+                ("660", "5660"),
+                ("1800", "6000"),
+            ],
         )
         restored_items.append("hypr/hypridle.conf")
 
@@ -187,7 +239,9 @@ def main():
     dest_hyprlock = os.path.join(dots, "hypr", "hyprlock.conf")
     if os.path.isfile(src_hyprlock):
         if os.path.isfile(dest_hyprlock):
-            backed_up_items.append(backup_path(dest_hyprlock, backup_dir, "hyprlock.conf"))
+            backed_up_items.append(
+                backup_path(dest_hyprlock, backup_dir, "hyprlock.conf")
+            )
         shutil.copy2(src_hyprlock, dest_hyprlock)
         restored_items.append("hypr/hyprlock.conf")
 
@@ -195,7 +249,9 @@ def main():
     logo_dest = os.path.join(dots, "hypr", "logo-2.png")
     if os.path.isfile(logo_src):
         if os.path.isfile(logo_dest):
-            backed_up_items.append(backup_path(logo_dest, backup_dir, "logo-2.png"))
+            backed_up_items.append(
+                backup_path(logo_dest, backup_dir, "logo-2.png")
+            )
         shutil.copy2(logo_src, logo_dest)
         restored_items.append("hypr/logo-2.png")
 
@@ -205,7 +261,9 @@ def main():
     if os.path.isfile(uptime_src):
         os.makedirs(uptime_dest_dir, exist_ok=True)
         if os.path.isfile(uptime_dest):
-            backed_up_items.append(backup_path(uptime_dest, backup_dir, "uptime.sh"))
+            backed_up_items.append(
+                backup_path(uptime_dest, backup_dir, "uptime.sh")
+            )
         shutil.copy2(uptime_src, uptime_dest)
         restored_items.append("hypr/scripts/uptime.sh")
 
@@ -218,22 +276,39 @@ def main():
     os.makedirs(os.path.join(hypr, "monitors"), exist_ok=True)
     os.makedirs(os.path.join(hypr, "windows"), exist_ok=True)
 
-    # Add nVidia enviroments
+    # Add nVidia environments and then rewire Hyprland configs.
     nvidia_conf = os.path.join(hypr, "environments", "nvidia.conf")
     if os.path.isfile(nvidia_conf):
-        backed_up_items.append(backup_path(nvidia_conf, backup_dir, "nvidia.conf"))
+        backed_up_items.append(
+            backup_path(nvidia_conf, backup_dir, "nvidia.conf")
+        )
     with open(nvidia_conf, "a", encoding="utf-8") as fh:
         fh.write("env = AQ_DRM_DEVICES,/dev/dri/card1:/dev/dri/card2\n")
     restored_items.append("hypr/environments/nvidia.conf")
 
     # Basic changes for my system
     for name, src_line in [
-        ("animation.conf", "source = ~/.config/hypr/conf/animations/default.conf\n"),
-        ("decoration.conf", "source = ~/.config/hypr/conf/decorations/no-rounding.conf\n"),
-        ("environment.conf", "source = ~/.config/hypr/conf/environments/nvidia.conf\n"),
+        (
+            "animation.conf",
+            "source = ~/.config/hypr/conf/animations/default.conf\n",
+        ),
+        (
+            "decoration.conf",
+            "source = ~/.config/hypr/conf/decorations/no-rounding.conf\n",
+        ),
+        (
+            "environment.conf",
+            "source = ~/.config/hypr/conf/environments/nvidia.conf\n",
+        ),
         ("layout.conf", "source = ~/.config/hypr/conf/layouts/laptop.conf\n"),
-        ("monitor.conf", "source = ~/.config/hypr/conf/monitors/1920x1080.conf\n"),
-        ("window.conf", "source = ~/.config/hypr/conf/windows/no-border.conf\n"),
+        (
+            "monitor.conf",
+            "source = ~/.config/hypr/conf/monitors/1920x1080.conf\n",
+        ),
+        (
+            "window.conf",
+            "source = ~/.config/hypr/conf/windows/no-border.conf\n",
+        ),
     ]:
         path = os.path.join(hypr, name)
         if os.path.isfile(path):
@@ -248,11 +323,14 @@ def main():
     for fname, content in [
         ("screenshot-folder", 'screenshot_folder="$HOME/Pictures/SC"\n'),
         ("screenshot-editor", "swappy -f\n"),
-        ("filemanager, "thunar\n"),
+        ("filemanager", "thunar\n"),
         ("rofi-border-radius.rasi", "* { border-radius: 0em; }\n"),
         ("rofi-border.rasi", "* { border-width: 0px; }\n"),
         ("rofi_bordersize.sh", "0\n"),
-        ("rofi-font.rasi", 'configuration { font: "Monofur Nerd Font 12"; }\n'),
+        (
+            "rofi-font.rasi",
+            'configuration { font: "Monofur Nerd Font 12"; }\n',
+        ),
     ]:
         path = os.path.join(settings_dir, fname)
         if os.path.isfile(path):
@@ -267,7 +345,9 @@ def main():
     if os.path.isdir(matugen_src):
         matugen_dest = os.path.join(dots, "matugen")
         if os.path.isdir(matugen_dest):
-            backed_up_items.append(backup_path(matugen_dest, backup_dir, "matugen"))
+            backed_up_items.append(
+                backup_path(matugen_dest, backup_dir, "matugen")
+            )
             shutil.rmtree(matugen_dest)
         shutil.copytree(matugen_src, matugen_dest, dirs_exist_ok=True)
         restored_items.append("matugen")
@@ -297,9 +377,15 @@ def main():
         os.makedirs(waybar_dest, exist_ok=True)
         existing = os.path.join(waybar_dest, "lateralus")
         if os.path.isdir(existing):
-            backed_up_items.append(backup_path(existing, backup_dir, "waybar-lateralus"))
+            backed_up_items.append(
+                backup_path(existing, backup_dir, "waybar-lateralus")
+            )
             shutil.rmtree(existing)
-        shutil.copytree(waybar_src, os.path.join(waybar_dest, "lateralus"), dirs_exist_ok=True)
+        shutil.copytree(
+            waybar_src,
+            os.path.join(waybar_dest, "lateralus"),
+            dirs_exist_ok=True,
+        )
         restored_items.append("waybar theme (lateralus)")
 
     waybar_src = os.path.join(src, "waybar", "themes", "ralex")
@@ -308,12 +394,18 @@ def main():
         os.makedirs(waybar_dest, exist_ok=True)
         existing = os.path.join(waybar_dest, "ralex")
         if os.path.isdir(existing):
-            backed_up_items.append(backup_path(existing, backup_dir, "waybar-ralex"))
+            backed_up_items.append(
+                backup_path(existing, backup_dir, "waybar-ralex")
+            )
             shutil.rmtree(existing)
-        shutil.copytree(waybar_src, os.path.join(waybar_dest, "ralex"), dirs_exist_ok=True)
+        shutil.copytree(
+            waybar_src, os.path.join(waybar_dest, "ralex"), dirs_exist_ok=True
+        )
         waybar_setting = os.path.join(settings_dir, "waybar-theme.sh")
         if os.path.isfile(waybar_setting):
-            backed_up_items.append(backup_path(waybar_setting, backup_dir, "waybar-theme.sh"))
+            backed_up_items.append(
+                backup_path(waybar_setting, backup_dir, "waybar-theme.sh")
+            )
         with open(waybar_setting, "w", encoding="utf-8") as fh:
             fh.write("/ralex;/ralex\n")
         restored_items.append("waybar theme (ralex)")
@@ -329,14 +421,20 @@ def main():
         for root, _, files in os.walk(rofi_dest):
             for name in files:
                 path = os.path.join(root, name)
-                replace_in_file(path, [("Fira Sans 11", "Monofur Nerd Font 12")])
+                replace_in_file(
+                    path, [("Fira Sans 11", "Monofur Nerd Font 12")]
+                )
         restored_items.append("rofi")
 
     # Wlogout changes
     wlogout_style = os.path.join(dots, "wlogout", "style.css")
     if os.path.isfile(wlogout_style):
-        backed_up_items.append(backup_path(wlogout_style, backup_dir, "wlogout-style.css"))
-        replace_in_file(wlogout_style, [("Fira Sans Semibold", "Monofur Nerd Font")])
+        backed_up_items.append(
+            backup_path(wlogout_style, backup_dir, "wlogout-style.css")
+        )
+        replace_in_file(
+            wlogout_style, [("Fira Sans Semibold", "Monofur Nerd Font")]
+        )
         restored_items.append("wlogout/style.css")
 
     # Kitty changes (kitty + zsh)
@@ -344,23 +442,37 @@ def main():
     kitty_dest = os.path.join(dots, "kitty")
     if os.path.isdir(kitty_src):
         if os.path.isdir(kitty_dest):
-            backed_up_items.append(backup_path(kitty_dest, backup_dir, "kitty"))
+            backed_up_items.append(
+                backup_path(kitty_dest, backup_dir, "kitty")
+            )
             shutil.rmtree(kitty_dest)
         shutil.copytree(kitty_src, kitty_dest, dirs_exist_ok=True)
         term_setting = os.path.join(settings_dir, "terminal.sh")
         if os.path.isfile(term_setting):
-            backed_up_items.append(backup_path(term_setting, backup_dir, "terminal.sh"))
+            backed_up_items.append(
+                backup_path(term_setting, backup_dir, "terminal.sh")
+            )
         with open(term_setting, "w", encoding="utf-8") as fh:
             fh.write("kitty\n")
         restored_items.append("kitty")
 
     # fastfetch, zshrc, nvim, gtk, qt6ct, ohmyposh
-    for name in ["fastfetch", "zshrc", "nvim", "gtk-3.0", "gtk-4.0", "qt6ct", "ohmyposh"]:
+    for name in [
+        "fastfetch",
+        "zshrc",
+        "nvim",
+        "gtk-3.0",
+        "gtk-4.0",
+        "qt6ct",
+        "ohmyposh",
+    ]:
         src_path = os.path.join(src, name)
         dest_path = os.path.join(dots, name)
         if os.path.isdir(src_path):
             if os.path.isdir(dest_path):
-                backed_up_items.append(backup_path(dest_path, backup_dir, name))
+                backed_up_items.append(
+                    backup_path(dest_path, backup_dir, name)
+                )
                 shutil.rmtree(dest_path)
             shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
             restored_items.append(name)

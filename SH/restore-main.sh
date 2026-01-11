@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 QUIET=true
 TOTAL_STEPS=8
@@ -67,16 +67,24 @@ resolve_backup_root() {
     printf '%s\n' "$base_root"
     return 0
   fi
+  local newest=""
+  local newest_mtime=0
   local candidate
   for candidate in "$base_root"/*/; do
-    if [[ ! -d "$candidate" ]]; then
-      continue
-    fi
+    [[ -d "$candidate" ]] || continue
     if has_required "${candidate%/}" "${required[@]}"; then
-      printf '%s\n' "${candidate%/}"
-      return 0
+      local mtime
+      mtime=$(stat -c %Y "$candidate" 2>/dev/null || echo 0)
+      if [[ "$mtime" -gt "$newest_mtime" ]]; then
+        newest_mtime="$mtime"
+        newest="$candidate"
+      fi
     fi
   done
+  if [[ -n "$newest" ]]; then
+    printf '%s\n' "${newest%/}"
+    return 0
+  fi
   return 1
 }
 
@@ -131,7 +139,8 @@ main() {
   progress "Pre-flight checks"
 
   # Local backup of overwritten configs.
-  local backup_dir="${usb}/logs/backups/restore-main-$(date '+%Y%m%d%H%M%S')"
+  local backup_dir
+  backup_dir="${usb}/logs/backups/restore-main-$(date '+%Y%m%d%H%M%S')"
   mkdir -p "$backup_dir"
 
   # Ensure target directories exist before rsync/copy.
@@ -139,7 +148,7 @@ main() {
   mkdir -p "${user_home}/.config/com.ml4w.hyprlandsettings"
   mkdir -p "${user_home}/.local/share/icons"
 
-  # Backup and patch a few system/user configs.
+  # Backup and patch a few system/user configs before overwriting.
   local hypr_conf="${user_home}/.config/hypr/hyprland.conf"
   if [[ -f "$hypr_conf" ]]; then
     run_cmd_no_check sudo cp -a "$hypr_conf" "${backup_dir}/hyprland.conf"
@@ -208,12 +217,14 @@ main() {
   if [[ -f "$fonts_script" && -x "$fonts_script" ]]; then
     if run_cmd_status bash "$fonts_script"; then
       fonts_installed="yes"
+    else
+      err "Fonts install failed; continuing."
     fi
   else
     err "Font install script not found or not executable: ${fonts_script}"
   fi
 
-  # Install yay if needed (Arch only).
+  # Install yay if needed (Arch only). Failures are non-fatal.
   local yay_installed="no"
   progress "Yay"
   if command_exists pacman; then
@@ -224,6 +235,8 @@ main() {
     fi
     if run_cmd_status sudo -u "$user" bash -lc "cd \"$yay_dir\" && makepkg -si --noconfirm"; then
       yay_installed="yes"
+    else
+      err "Yay install failed; continuing."
     fi
   else
     err "pacman not found; skipping yay install."
@@ -232,8 +245,14 @@ main() {
   # Install ML4W tool via Flatpak.
   progress "ML4W Dotfiles Installer"
   local ml4w_installed="no"
-  if flatpak install flathub com.ml4w.dotfilesinstaller; then
-    ml4w_installed="yes"
+  if command_exists flatpak; then
+    if flatpak install --user --noninteractive flathub com.ml4w.dotfilesinstaller; then
+      ml4w_installed="yes"
+    else
+      err "ML4W install skipped or failed."
+    fi
+  else
+    err "flatpak not found; skipping ML4W install."
   fi
 
   status "Restore done."

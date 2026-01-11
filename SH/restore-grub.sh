@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 QUIET=true
 TOTAL_STEPS=3
@@ -68,16 +68,24 @@ resolve_backup_root() {
     printf '%s\n' "$base_root"
     return 0
   fi
+  local newest=""
+  local newest_mtime=0
   local candidate
   for candidate in "$base_root"/*/; do
-    if [[ ! -d "$candidate" ]]; then
-      continue
-    fi
+    [[ -d "$candidate" ]] || continue
     if has_required "${candidate%/}" "${required[@]}"; then
-      printf '%s\n' "${candidate%/}"
-      return 0
+      local mtime
+      mtime=$(stat -c %Y "$candidate" 2>/dev/null || echo 0)
+      if [[ "$mtime" -gt "$newest_mtime" ]]; then
+        newest_mtime="$mtime"
+        newest="$candidate"
+      fi
     fi
   done
+  if [[ -n "$newest" ]]; then
+    printf '%s\n' "${newest%/}"
+    return 0
+  fi
   return 1
 }
 
@@ -108,7 +116,8 @@ main() {
   local srv="${backup_root}/Srv"
   local theme="${srv}/grub/lateralus"
   local grub_default="/etc/default/grub"
-  local backup="/etc/default/grub.bak.$(date '+%Y%m%d-%H%M%S')"
+  local backup
+  backup="/etc/default/grub.bak.$(date '+%Y%m%d-%H%M%S')"
   local ts
   ts="$(date '+%Y%m%d%H%M%S')"
   local backup_dir="/var/backups/restore-grub-${ts}"
@@ -130,11 +139,15 @@ main() {
     exit 1
   fi
 
-  # Keep a backup of current settings and theme.
+  # Keep a backup of current settings and theme before changing GRUB.
   mkdir -p "$backup_dir"
   status "Restore GRUB start: $(date '+%Y-%m-%dT%H:%M:%S')"
   progress "Backup defaults"
   cp -a "$grub_default" "$backup"
+  cp -a "$grub_default" "${backup_dir}/grub.default"
+  if [[ -f /boot/grub/grub.cfg ]]; then
+    cp -a /boot/grub/grub.cfg "${backup_dir}/grub.cfg"
+  fi
 
   mkdir -p /boot/grub/themes
   if [[ -d "/boot/grub/themes/lateralus" ]]; then
