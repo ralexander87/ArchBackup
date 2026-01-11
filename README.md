@@ -195,12 +195,13 @@ sudo python3 restore-grub.py
 
 1. Require root (self-elevates via sudo).
 2. Locate USB backup root and `Srv/` folder.
-3. Back up `/etc/samba` and `/etc/ssh` into a timestamped backup dir.
-4. Restore Samba configuration (`/etc/samba/smb.conf`).
+3. Back up `/etc/samba`, `/etc/ssh`, and `/etc/fstab` into a timestamped backup dir.
+4. Restore Samba configuration (`/etc/samba/smb.conf`) and credentials (`/etc/samba/creds-euclid`).
 5. Create SMB directories and set ownership/permissions.
 6. Ensure samba services are enabled and running.
 7. Restore SSH config and keys, enforce file permissions.
 8. Validate `smb.conf` and `sshd_config` and rollback on error.
+9. Append CIFS mount entry to `/etc/fstab` if missing.
 
 **Usage**:
 
@@ -218,7 +219,7 @@ The `SH/` directory contains bash equivalents for many of the Python scripts. Th
 - `SH/restore-main.sh`: restore user data and configs.
 - `SH/restore-dots.sh`: restore dotfiles and Hyprland settings.
 - `SH/restore-grub.sh`: restore GRUB theme and config.
-- `SH/restore-serv.sh`: restore Samba + SSH services.
+- `SH/restore-serv.sh`: restore Samba + SSH services and `fstab` entry.
 
 Usage example:
 
@@ -239,6 +240,20 @@ When encryption is enabled in `backup-full-ssd`:
   - `BKP_DELETE_PLAINTEXT=y` is set.
 
 **Important**: Only the **archive** is encrypted. The raw backup folders remain unencrypted unless you manually remove them after encryption.
+
+## Samba Credentials and fstab
+
+The Samba credentials file is expected at:
+
+- `/etc/samba/creds-euclid`
+
+During restore, if a credentials file exists on the backup media it is copied back to `/etc/samba/creds-euclid` with `0600` permissions.
+
+The restore process also appends this CIFS entry to `/etc/fstab` if it is missing:
+
+```text
+//192.168.8.60/d   /SMB/euclid   cifs   _netdev,credentials=/etc/samba/creds-euclid,uid=1000,gid=1000   0 0
+```
 
 ## Safety Notes
 

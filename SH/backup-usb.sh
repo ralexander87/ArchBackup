@@ -232,6 +232,7 @@ main() {
     ["/usr/share/plymouth/plymouthd.defaults"]="${srv}/plymouthd.defaults"
     ["/etc/samba/smb.conf"]="${srv}/samba/smb.conf"
     ["/etc/samba/euclid"]="${srv}/samba/euclid"
+    ["/etc/samba/creds-euclid"]="${srv}/samba/creds-euclid"
     ["/etc/ssh/sshd_config"]="${srv}/ssh/sshd_config"
     ["/etc/fstab"]="${srv}/fstab"
   )

@@ -131,13 +131,15 @@ main() {
 
   # Samba + SSH restore sources.
   local smb_root="/SMB"
-  local smb_subdirs=("euclid" "pneuma" "SCP")
+  local smb_subdirs=("euclid" "pneuma" "SCP" "lateralus")
   local wsdd_service="wsdd.service"
   local smb_services=("smb.service" "nmb.service" "avahi-daemon.service" "${wsdd_service}")
   local sshd_service="sshd.service"
   local smb_conf_src="${srv}/samba/smb.conf"
+  local smb_creds_src="${srv}/samba/creds-euclid"
   local sshd_conf_src="${srv}/ssh/sshd_config"
   local yubi_service="pcscd.service"
+  local fstab_entry="//192.168.8.60/d   /SMB/euclid   cifs   _netdev,credentials=/etc/samba/creds-euclid,uid=1000,gid=1000   0 0"
 
   for cmd in systemctl modprobe smbpasswd rsync sshd pdbedit; do
     if ! command_exists "$cmd"; then
@@ -175,6 +177,9 @@ main() {
   if [[ -f "/etc/ssh/sshd_config" ]]; then
     cp -a /etc/ssh/sshd_config "${backup_dir}/sshd_config"
   fi
+  if [[ -f "/etc/fstab" ]]; then
+    cp -a /etc/fstab "${backup_dir}/fstab"
+  fi
 
   local smb_conf_bak="/etc/samba/smb.conf.${ts}.bak"
   cp -a "$smb_conf_src" "$smb_conf_bak"
@@ -183,6 +188,11 @@ main() {
   cp -a "$smb_conf_src" /etc/samba/smb.conf
   chown 0:0 /etc/samba/smb.conf
   chmod 0644 /etc/samba/smb.conf
+  if [[ -f "$smb_creds_src" ]]; then
+    cp -a "$smb_creds_src" /etc/samba/creds-euclid
+    chown 0:0 /etc/samba/creds-euclid
+    chmod 0600 /etc/samba/creds-euclid
+  fi
 
   # Create SMB share structure.
   mkdir -p "$smb_root"
@@ -287,6 +297,18 @@ main() {
     chown 0:0 /etc/ssh/sshd_config
     chmod 0600 /etc/ssh/sshd_config
     exit 1
+  fi
+
+  progress "Fstab"
+  if [[ -f /etc/fstab ]]; then
+    if ! grep -Fqx "$fstab_entry" /etc/fstab; then
+      if [[ -n "$(tail -c1 /etc/fstab 2>/dev/null)" ]]; then
+        printf '\n' >>/etc/fstab
+      fi
+      printf '%s\n' "$fstab_entry" >>/etc/fstab
+    else
+      err "fstab entry already present; skipping append."
+    fi
   fi
 
   # Service status summary for quick checks.

@@ -136,6 +136,10 @@ def main():
             ),
             ("/etc/samba/smb.conf", os.path.join(root_dir, "smb.conf")),
             ("/etc/samba/euclid", os.path.join(root_dir, "euclid")),
+            (
+                "/etc/samba/creds-euclid",
+                os.path.join(root_dir, "creds-euclid"),
+            ),
             ("/etc/ssh/sshd_config", os.path.join(root_dir, "sshd_config")),
             (
                 "/usr/lib/sddm/sddm.conf.d/default.conf",

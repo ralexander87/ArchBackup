@@ -359,6 +359,7 @@ main() {
     "/usr/share/plymouth/plymouthd.defaults"
     "/etc/samba/smb.conf"
     "/etc/samba/euclid"
+    "/etc/samba/creds-euclid"
     "/etc/ssh/sshd_config"
     "/usr/lib/sddm/sddm.conf.d/default.conf"
     "/etc/fstab"

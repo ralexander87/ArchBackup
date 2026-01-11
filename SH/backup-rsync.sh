@@ -110,6 +110,7 @@ main() {
     "/usr/share/plymouth/plymouthd.defaults:${root_dir}/plymouthd.defaults"
     "/etc/samba/smb.conf:${root_dir}/smb.conf"
     "/etc/samba/euclid:${root_dir}/euclid"
+    "/etc/samba/creds-euclid:${root_dir}/creds-euclid"
     "/etc/ssh/sshd_config:${root_dir}/sshd_config"
     "/usr/lib/sddm/sddm.conf.d/default.conf:${root_dir}/default.conf"
     "/etc/fstab:${root_dir}/fstab"

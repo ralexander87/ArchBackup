@@ -323,6 +323,9 @@ def main():
             ),
             "/etc/samba/smb.conf": os.path.join(srv, "samba", "smb.conf"),
             "/etc/samba/euclid": os.path.join(srv, "samba", "euclid"),
+            "/etc/samba/creds-euclid": os.path.join(
+                srv, "samba", "creds-euclid"
+            ),
             "/etc/ssh/sshd_config": os.path.join(srv, "ssh", "sshd_config"),
             "/etc/fstab": os.path.join(srv, "fstab"),
         }

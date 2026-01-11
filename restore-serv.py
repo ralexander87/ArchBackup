@@ -111,7 +111,7 @@ def main():
 
     # Samba + SSH restore sources.
     smb_root = "/SMB"
-    smb_subdirs = ["euclid", "pneuma", "SCP"]
+    smb_subdirs = ["euclid", "pneuma", "SCP", "lateralus"]
     wsdd_service = "wsdd.service"
     smb_services = [
         "smb.service",
@@ -121,8 +121,13 @@ def main():
     ]
     sshd_service = "sshd.service"
     smb_conf_src = os.path.join(srv, "samba", "smb.conf")
+    smb_creds_src = os.path.join(srv, "samba", "creds-euclid")
     sshd_conf_src = os.path.join(srv, "ssh", "sshd_config")
     yubi_service = "pcscd.service"
+    fstab_entry = (
+        "//192.168.8.60/d   /SMB/euclid   cifs   "
+        "_netdev,credentials=/etc/samba/creds-euclid,uid=1000,gid=1000   0 0"
+    )
 
     for cmd in [
         "systemctl",
@@ -170,6 +175,8 @@ def main():
             "/etc/ssh/sshd_config",
             os.path.join(backup_dir, "sshd_config"),
         )
+    if os.path.isfile("/etc/fstab"):
+        shutil.copy2("/etc/fstab", os.path.join(backup_dir, "fstab"))
 
     smb_conf_bak = f"/etc/samba/smb.conf.{ts}.bak"
     shutil.copy2(smb_conf_src, smb_conf_bak)
@@ -178,6 +185,10 @@ def main():
     shutil.copy2(smb_conf_src, "/etc/samba/smb.conf")
     os.chown("/etc/samba/smb.conf", 0, 0)
     os.chmod("/etc/samba/smb.conf", 0o644)
+    if os.path.isfile(smb_creds_src):
+        shutil.copy2(smb_creds_src, "/etc/samba/creds-euclid")
+        os.chown("/etc/samba/creds-euclid", 0, 0)
+        os.chmod("/etc/samba/creds-euclid", 0o600)
 
     # Create SMB share structure.
     os.makedirs(smb_root, exist_ok=True)
@@ -318,6 +329,18 @@ def main():
             "sshd_config validation failed; backup restored. "
             "Fix errors and retry."
         )
+
+    progress("Fstab")
+    if os.path.isfile("/etc/fstab"):
+        with open("/etc/fstab", "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+        if fstab_entry not in content:
+            with open("/etc/fstab", "a", encoding="utf-8") as fh:
+                if not content.endswith("\n"):
+                    fh.write("\n")
+                fh.write(fstab_entry + "\n")
+        else:
+            err("fstab entry already present; skipping append.")
 
     # Service status summary for quick checks.
     for svc in smb_services + [sshd_service]:
