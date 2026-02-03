@@ -1,0 +1,309 @@
+==== DOTS ====
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /home/ralexander/.mydotfiles/com.ml4w.dotfiles.stable/.config/ -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-2026-02-02-23-40-41/
+
+sent 1,449,012 bytes  received 8,187 bytes  2,914,398.00 bytes/sec
+total size is 1,416,524  speedup is 0.97
+Copying: /home/ralexander/.config/com.ml4w.hyprlandsettings/hyprctl.json -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-2026-02-02-23-40-41/
+
+sent 2,175 bytes  received 35 bytes  4,420.00 bytes/sec
+total size is 2,070  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/DOTS/restore-dots.sh -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-2026-02-02-23-40-41/
+
+sent 7,198 bytes  received 35 bytes  14,466.00 bytes/sec
+total size is 7,090  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/DOTS/restore-dots.py -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-2026-02-02-23-40-41/
+
+sent 8,573 bytes  received 35 bytes  17,216.00 bytes/sec
+total size is 8,466  speedup is 0.98
+Compressed archive created: /run/media/ralexander/HD4-02/DOTS/DOTS-033-2026-02-02-23-40-41/DOTS-033-2026-02-02-23-40-41.tar.gz
+Backup destination ready: /run/media/ralexander/HD4-02/DOTS/DOTS-033-2026-02-02-23-40-41
+Summary: rsync_failures=0, tar_failed=false
+==== GRUB ====
+Sudo required to read GRUB files. You may be prompted.
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /boot/grub/themes/lateralus -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-2026-02-02-23-40-41/
+
+sent 13,949,182 bytes  received 1,719 bytes  27,901,802.00 bytes/sec
+total size is 13,940,258  speedup is 1.00
+Copying: /etc/default/grub -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-2026-02-02-23-40-41/
+
+sent 2,292 bytes  received 35 bytes  4,654.00 bytes/sec
+total size is 2,198  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/SERV/GRUB/restore-grub.sh -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-2026-02-02-23-40-41/
+
+sent 2,390 bytes  received 35 bytes  4,850.00 bytes/sec
+total size is 2,283  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/SERV/GRUB/restore-grub.py -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-2026-02-02-23-40-41/
+
+sent 3,930 bytes  received 35 bytes  7,930.00 bytes/sec
+total size is 3,822  speedup is 0.96
+Compressed archive created: /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-2026-02-02-23-40-41/GRUB-033-2026-02-02-23-40-41.tar.gz
+Backup completed: /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-2026-02-02-23-40-41
+Summary: rsync_failures=0, tar_failed=false
+==== SMB ====
+Sudo required to read SMB files. You may be prompted.
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /etc/samba/smb.conf -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47/
+
+sent 8,946 bytes  received 35 bytes  17,962.00 bytes/sec
+total size is 8,847  speedup is 0.99
+Copying: /etc/fstab -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47/
+
+sent 1,444 bytes  received 35 bytes  2,958.00 bytes/sec
+total size is 1,349  speedup is 0.91
+Copying: /home/ralexander/Code/BACKUP/SERV/SMB/restore-smb.sh -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47/
+
+sent 5,680 bytes  received 35 bytes  11,430.00 bytes/sec
+total size is 5,573  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/SERV/SMB/restore-smb.py -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47/
+
+sent 8,750 bytes  received 35 bytes  17,570.00 bytes/sec
+total size is 8,644  speedup is 0.98
+Copying: /etc/samba/creds-euclid -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47/
+
+sent 134 bytes  received 35 bytes  338.00 bytes/sec
+total size is 32  speedup is 0.19
+Copying: /etc/samba/creds-scp -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47/
+
+sent 138 bytes  received 35 bytes  346.00 bytes/sec
+total size is 39  speedup is 0.23
+Compression completed with warnings for /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47 (exit 1).
+Backup completed: /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-2026-02-02-23-40-47
+Summary: rsync_failures=0, tar_failed=false
+==== SSH ====
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /home/ralexander/.ssh -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-2026-02-02-23-40-47/
+
+sent 8,522 bytes  received 313 bytes  17,670.00 bytes/sec
+total size is 7,086  speedup is 0.80
+Copying: /etc/ssh/sshd_config -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-2026-02-02-23-40-47/
+
+sent 3,488 bytes  received 35 bytes  7,046.00 bytes/sec
+total size is 3,386  speedup is 0.96
+Copying: /home/ralexander/Code/BACKUP/SERV/SSH/restore-ssh.sh -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-2026-02-02-23-40-47/
+
+sent 6,387 bytes  received 35 bytes  12,844.00 bytes/sec
+total size is 6,280  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/SERV/SSH/restore-ssh.py -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-2026-02-02-23-40-47/
+
+sent 10,195 bytes  received 35 bytes  20,460.00 bytes/sec
+total size is 10,088  speedup is 0.99
+Compressed archive created: /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-2026-02-02-23-40-47/SSH-033-2026-02-02-23-40-47.tar.gz
+Backup completed: /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-2026-02-02-23-40-47
+Summary: rsync_failures=0, tar_failed=false
+SERV backups completed. failures=0
+==== DOTS ====
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /home/ralexander/.mydotfiles/com.ml4w.dotfiles.stable/.config/ -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-02-02-23-43-59/
+
+sent 1,449,012 bytes  received 8,187 bytes  2,914,398.00 bytes/sec
+total size is 1,416,524  speedup is 0.97
+Copying: /home/ralexander/.config/com.ml4w.hyprlandsettings/hyprctl.json -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-02-02-23-43-59/
+
+sent 2,175 bytes  received 35 bytes  4,420.00 bytes/sec
+total size is 2,070  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/DOTS/restore-dots.sh -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-02-02-23-43-59/
+
+sent 7,195 bytes  received 35 bytes  14,460.00 bytes/sec
+total size is 7,087  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/DOTS/restore-dots.py -> /run/media/ralexander/HD4-02/DOTS/DOTS-033-02-02-23-43-59/
+
+sent 8,571 bytes  received 35 bytes  17,212.00 bytes/sec
+total size is 8,463  speedup is 0.98
+Compressed archive created: /run/media/ralexander/HD4-02/DOTS/DOTS-033-02-02-23-43-59/DOTS-033-02-02-23-43-59.tar.gz
+Backup destination ready: /run/media/ralexander/HD4-02/DOTS/DOTS-033-02-02-23-43-59
+Summary: rsync_failures=0, tar_failed=false
+==== GRUB ====
+Sudo required to read GRUB files. You may be prompted.
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /boot/grub/themes/lateralus -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-02-02-23-43-59/
+
+sent 13,949,182 bytes  received 1,719 bytes  27,901,802.00 bytes/sec
+total size is 13,940,258  speedup is 1.00
+Copying: /etc/default/grub -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-02-02-23-43-59/
+
+sent 2,292 bytes  received 35 bytes  4,654.00 bytes/sec
+total size is 2,198  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/SERV/GRUB/restore-grub.sh -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-02-02-23-43-59/
+
+sent 2,390 bytes  received 35 bytes  4,850.00 bytes/sec
+total size is 2,283  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/SERV/GRUB/restore-grub.py -> /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-02-02-23-43-59/
+
+sent 3,930 bytes  received 35 bytes  7,930.00 bytes/sec
+total size is 3,822  speedup is 0.96
+Compressed archive created: /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-02-02-23-43-59/GRUB-033-02-02-23-43-59.tar.gz
+Backup completed: /run/media/ralexander/HD4-02/SERV/GRUB/GRUB-033-02-02-23-43-59
+Summary: rsync_failures=0, tar_failed=false
+==== SMB ====
+Sudo required to read SMB files. You may be prompted.
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /etc/samba/smb.conf -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00/
+
+sent 8,946 bytes  received 35 bytes  17,962.00 bytes/sec
+total size is 8,847  speedup is 0.99
+Copying: /etc/fstab -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00/
+
+sent 1,444 bytes  received 35 bytes  2,958.00 bytes/sec
+total size is 1,349  speedup is 0.91
+Copying: /home/ralexander/Code/BACKUP/SERV/SMB/restore-smb.sh -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00/
+
+sent 5,680 bytes  received 35 bytes  11,430.00 bytes/sec
+total size is 5,573  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/SERV/SMB/restore-smb.py -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00/
+
+sent 8,750 bytes  received 35 bytes  17,570.00 bytes/sec
+total size is 8,644  speedup is 0.98
+Copying: /etc/samba/creds-euclid -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00/
+
+sent 134 bytes  received 35 bytes  338.00 bytes/sec
+total size is 32  speedup is 0.19
+Copying: /etc/samba/creds-scp -> /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00/
+
+sent 138 bytes  received 35 bytes  346.00 bytes/sec
+total size is 39  speedup is 0.23
+Compression completed with warnings for /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00 (exit 1).
+Backup completed: /run/media/ralexander/HD4-02/SERV/SMB/SMB-033-02-02-23-44-00
+Summary: rsync_failures=0, tar_failed=false
+==== SSH ====
+Mounted destinations:
+  [1] /run/media/ralexander/HD4-02
+Using the only available destination: /run/media/ralexander/HD4-02
+Copying: /home/ralexander/.ssh -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-02-02-23-44-00/
+
+sent 8,553 bytes  received 316 bytes  17,738.00 bytes/sec
+total size is 7,086  speedup is 0.80
+Copying: /etc/ssh/sshd_config -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-02-02-23-44-00/
+
+sent 3,488 bytes  received 35 bytes  7,046.00 bytes/sec
+total size is 3,386  speedup is 0.96
+Copying: /home/ralexander/Code/BACKUP/SERV/SSH/restore-ssh.sh -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-02-02-23-44-00/
+
+sent 6,387 bytes  received 35 bytes  12,844.00 bytes/sec
+total size is 6,280  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/SERV/SSH/restore-ssh.py -> /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-02-02-23-44-00/
+
+sent 10,195 bytes  received 35 bytes  20,460.00 bytes/sec
+total size is 10,088  speedup is 0.99
+Compressed archive created: /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-02-02-23-44-00/SSH-033-02-02-23-44-00.tar.gz
+Backup completed: /run/media/ralexander/HD4-02/SERV/SSH/SSH-033-02-02-23-44-00
+Summary: rsync_failures=0, tar_failed=false
+SERV backups completed. failures=0
+==== DOTS ====
+Mounted destinations:
+  [1] /run/media/ralexander/netac
+Using the only available destination: /run/media/ralexander/netac
+Copying: /home/ralexander/.mydotfiles/com.ml4w.dotfiles.stable/.config/ -> /run/media/ralexander/netac/DOTS/DOTS-034-03-02-17-09-35/
+
+sent 1,449,012 bytes  received 8,187 bytes  2,914,398.00 bytes/sec
+total size is 1,416,524  speedup is 0.97
+Copying: /home/ralexander/.config/com.ml4w.hyprlandsettings/hyprctl.json -> /run/media/ralexander/netac/DOTS/DOTS-034-03-02-17-09-35/
+
+sent 2,175 bytes  received 35 bytes  4,420.00 bytes/sec
+total size is 2,070  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/DOTS/restore-dots.sh -> /run/media/ralexander/netac/DOTS/DOTS-034-03-02-17-09-35/
+
+sent 7,195 bytes  received 35 bytes  14,460.00 bytes/sec
+total size is 7,087  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/DOTS/restore-dots.py -> /run/media/ralexander/netac/DOTS/DOTS-034-03-02-17-09-35/
+
+sent 8,571 bytes  received 35 bytes  17,212.00 bytes/sec
+total size is 8,463  speedup is 0.98
+Compressed archive created: /run/media/ralexander/netac/DOTS/DOTS-034-03-02-17-09-35/DOTS-034-03-02-17-09-35.tar.gz
+Backup destination ready: /run/media/ralexander/netac/DOTS/DOTS-034-03-02-17-09-35
+Summary: rsync_failures=0, tar_failed=false
+==== GRUB ====
+Sudo required to read GRUB files. You may be prompted.
+Mounted destinations:
+  [1] /run/media/ralexander/netac
+Using the only available destination: /run/media/ralexander/netac
+Copying: /boot/grub/themes/lateralus -> /run/media/ralexander/netac/SERV/GRUB/GRUB-034-03-02-17-09-35/
+
+sent 13,949,182 bytes  received 1,719 bytes  27,901,802.00 bytes/sec
+total size is 13,940,258  speedup is 1.00
+Copying: /etc/default/grub -> /run/media/ralexander/netac/SERV/GRUB/GRUB-034-03-02-17-09-35/
+
+sent 2,292 bytes  received 35 bytes  4,654.00 bytes/sec
+total size is 2,198  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/SERV/GRUB/restore-grub.sh -> /run/media/ralexander/netac/SERV/GRUB/GRUB-034-03-02-17-09-35/
+
+sent 2,390 bytes  received 35 bytes  4,850.00 bytes/sec
+total size is 2,283  speedup is 0.94
+Copying: /home/ralexander/Code/BACKUP/SERV/GRUB/restore-grub.py -> /run/media/ralexander/netac/SERV/GRUB/GRUB-034-03-02-17-09-35/
+
+sent 3,930 bytes  received 35 bytes  7,930.00 bytes/sec
+total size is 3,822  speedup is 0.96
+Compressed archive created: /run/media/ralexander/netac/SERV/GRUB/GRUB-034-03-02-17-09-35/GRUB-034-03-02-17-09-35.tar.gz
+Backup completed: /run/media/ralexander/netac/SERV/GRUB/GRUB-034-03-02-17-09-35
+Summary: rsync_failures=0, tar_failed=false
+==== SMB ====
+Sudo required to read SMB files. You may be prompted.
+Mounted destinations:
+  [1] /run/media/ralexander/netac
+Using the only available destination: /run/media/ralexander/netac
+Copying: /etc/samba/smb.conf -> /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39/
+
+sent 5,615 bytes  received 35 bytes  11,300.00 bytes/sec
+total size is 5,517  speedup is 0.98
+Copying: /etc/fstab -> /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39/
+
+sent 1,444 bytes  received 35 bytes  2,958.00 bytes/sec
+total size is 1,349  speedup is 0.91
+Copying: /home/ralexander/Code/BACKUP/SERV/SMB/restore-smb.sh -> /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39/
+
+sent 5,680 bytes  received 35 bytes  11,430.00 bytes/sec
+total size is 5,573  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/SERV/SMB/restore-smb.py -> /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39/
+
+sent 8,750 bytes  received 35 bytes  17,570.00 bytes/sec
+total size is 8,644  speedup is 0.98
+Copying: /etc/samba/creds-euclid -> /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39/
+
+sent 134 bytes  received 35 bytes  338.00 bytes/sec
+total size is 32  speedup is 0.19
+Copying: /etc/samba/creds-scp -> /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39/
+
+sent 138 bytes  received 35 bytes  346.00 bytes/sec
+total size is 39  speedup is 0.23
+Compression completed with warnings for /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39 (exit 1).
+Backup completed: /run/media/ralexander/netac/SERV/SMB/SMB-034-03-02-17-09-39
+Summary: rsync_failures=0, tar_failed=false
+==== SSH ====
+Mounted destinations:
+  [1] /run/media/ralexander/netac
+Using the only available destination: /run/media/ralexander/netac
+Copying: /home/ralexander/.ssh -> /run/media/ralexander/netac/SERV/SSH/SSH-034-03-02-17-09-39/
+
+sent 8,186 bytes  received 280 bytes  16,932.00 bytes/sec
+total size is 7,086  speedup is 0.84
+Copying: /etc/ssh/sshd_config -> /run/media/ralexander/netac/SERV/SSH/SSH-034-03-02-17-09-39/
+
+sent 3,488 bytes  received 35 bytes  7,046.00 bytes/sec
+total size is 3,386  speedup is 0.96
+Copying: /home/ralexander/Code/BACKUP/SERV/SSH/restore-ssh.sh -> /run/media/ralexander/netac/SERV/SSH/SSH-034-03-02-17-09-39/
+
+sent 6,387 bytes  received 35 bytes  12,844.00 bytes/sec
+total size is 6,280  speedup is 0.98
+Copying: /home/ralexander/Code/BACKUP/SERV/SSH/restore-ssh.py -> /run/media/ralexander/netac/SERV/SSH/SSH-034-03-02-17-09-39/
+
+sent 10,195 bytes  received 35 bytes  20,460.00 bytes/sec
+total size is 10,088  speedup is 0.99
+Compressed archive created: /run/media/ralexander/netac/SERV/SSH/SSH-034-03-02-17-09-39/SSH-034-03-02-17-09-39.tar.gz
+Backup completed: /run/media/ralexander/netac/SERV/SSH/SSH-034-03-02-17-09-39
+Summary: rsync_failures=0, tar_failed=false
+SERV backups completed. failures=0
