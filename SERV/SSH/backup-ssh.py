@@ -38,6 +38,35 @@ def run_rsync(args: Sequence[str]) -> None:
         raise RuntimeError(f"rsync failed with code {result.returncode}")
 
 
+def run_rsync_sudo(args: Sequence[str]) -> None:
+    """Run rsync via sudo and normalize partial transfer codes."""
+    result = subprocess.run(
+        ["sudo", *args],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.stderr:
+        for line in result.stderr.splitlines():
+            print(f"rsync: {line}", file=sys.stderr)
+    if result.returncode in {23, 24}:
+        print(
+            f"rsync returned partial transfer code {result.returncode}; continuing.",
+            file=sys.stderr,
+        )
+        return
+    if result.returncode != 0:
+        raise RuntimeError(f"rsync failed with code {result.returncode}")
+
+
+def ensure_sudo() -> bool:
+    if shutil.which("sudo") is None:
+        print("sudo not found; cannot read /etc/ssh/sshd_config.", file=sys.stderr)
+        return False
+    return subprocess.run(["sudo", "-v"], check=False).returncode == 0
+
+
 def main() -> int:
     # Banner and flags.
     user_name = os.environ.get("USER") or os.getlogin()
@@ -192,7 +221,30 @@ Options:
         if src.is_file():
             print(f"Copying: {src} -> {run_dir}")
             try:
-                run_rsync([*rsync_opts, str(src), f"{run_dir}/"])
+                if src == sshd_config:
+                    if ensure_sudo():
+                        run_rsync_sudo([*rsync_opts, str(src), f"{run_dir}/"])
+                        try:
+                            subprocess.run(
+                                [
+                                    "sudo",
+                                    "chown",
+                                    f"{user_name}:{user_name}",
+                                    str(run_dir / "sshd_config"),
+                                ],
+                                check=False,
+                            )
+                            subprocess.run(
+                                ["sudo", "chmod", "644", str(run_dir / "sshd_config")],
+                                check=False,
+                            )
+                        except OSError:
+                            pass
+                    else:
+                        rsync_failures += 1
+                        continue
+                else:
+                    run_rsync([*rsync_opts, str(src), f"{run_dir}/"])
                 if src.name in {"restore-ssh.sh", "restore-ssh.py"}:
                     try:
                         (run_dir / src.name).chmod(0o755)

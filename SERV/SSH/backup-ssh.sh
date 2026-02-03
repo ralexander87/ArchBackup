@@ -138,6 +138,24 @@ run_rsync() {
 	return 0
 }
 
+run_rsync_sudo() {
+	local src="$1"
+	local dest="$2"
+	echo "Copying (sudo): ${src} -> ${dest}"
+	sudo rsync "${rsync_opts[@]}" "$src" "$dest"
+	rc=$?
+	if [[ $rc -eq 23 || $rc -eq 24 ]]; then
+		echo "rsync returned partial transfer code ${rc}; continuing." >&2
+		return 0
+	fi
+	if [[ $rc -ne 0 ]]; then
+		echo "rsync failed with code ${rc} for ${src}" >&2
+		rsync_failures=$((rsync_failures + 1))
+		return 0
+	fi
+	return 0
+}
+
 # Sources and manifest.
 ssh_dir="/home/${user_name}/.ssh"
 sshd_config="/etc/ssh/sshd_config"
@@ -175,7 +193,22 @@ for src in "${sources[@]}"; do
 		continue
 	fi
 	if [[ -f "$src" ]]; then
-		run_rsync "$src" "${run_dir}/"
+		if [[ "$src" == "$sshd_config" ]]; then
+			if command -v sudo >/dev/null 2>&1; then
+				if sudo -v; then
+					run_rsync_sudo "$src" "${run_dir}/"
+					sudo chown "${user_name}:${user_name}" "${run_dir}/sshd_config" || true
+					sudo chmod 644 "${run_dir}/sshd_config" || true
+				else
+					rsync_failures=$((rsync_failures + 1))
+				fi
+			else
+				echo "sudo not found; cannot read ${sshd_config}." >&2
+				rsync_failures=$((rsync_failures + 1))
+			fi
+		else
+			run_rsync "$src" "${run_dir}/"
+		fi
 		if [[ "$src" == *"/restore-ssh.sh" || "$src" == *"/restore-ssh.py" ]]; then
 			chmod 755 "${run_dir}/$(basename "$src")" || true
 		fi
