@@ -7,7 +7,6 @@ import argparse
 import datetime as dt
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -139,11 +138,7 @@ def handle_changes(message: str, quiet_seconds: float) -> None:
             if time.monotonic() - stable_since >= quiet_seconds:
                 break
 
-        py_files = [
-            str(path)
-            for path in list_tracked_files()
-            if path.suffix == ".py"
-        ]
+        py_files = [str(path) for path in list_tracked_files() if path.suffix == ".py"]
         print("Detected repo changes.")
         if not prompt_yes_no("Run format/lint now? [y/N]: "):
             time.sleep(1.0)

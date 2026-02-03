@@ -24,18 +24,6 @@ Options:
 """)
         input("Press Enter to continue...")
 
-    # Require sudo and systemctl.
-    if shutil.which("sudo") is None:
-        print("sudo not found; cannot restore SMB files.", file=sys.stderr)
-        return 1
-    print("Sudo required to restore SMB files. You may be prompted.")
-    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
-        return 1
-
-    if shutil.which("systemctl") is None:
-        print("systemctl not found; cannot manage services.", file=sys.stderr)
-        return 1
-
     # Confirm destructive restore if requested.
     if confirm_restore:
         if auto_yes:
@@ -47,6 +35,10 @@ Options:
         if answer.lower() != "y":
             print("Restore cancelled.")
             return 0
+
+    if shutil.which("systemctl") is None:
+        print("systemctl not found; cannot manage services.", file=sys.stderr)
+        return 1
 
     def list_units() -> set[str]:
         listed = subprocess.run(
@@ -93,17 +85,8 @@ Options:
             return 1
         resolved_services.append(svc)
 
-    for svc in resolved_services:
-        enabled = subprocess.run(
-            ["sudo", "systemctl", "enable", svc], check=False
-        ).returncode
-        if enabled != 0:
-            print(f"Warning: failed to enable {svc}", file=sys.stderr)
-
-    # Load CIFS module.
-    subprocess.run(["sudo", "modprobe", "cifs"], check=False)
-
-    # Optional smbpasswd user setup.
+    # Optional smbpasswd user setup (non-sudo discovery).
+    smb_user_to_add = ""
     if shutil.which("pdbedit") is not None:
         smb_user = input("Enter SMB username for smbpasswd: ").strip()
         if smb_user:
@@ -114,11 +97,31 @@ Options:
             if smb_user in users:
                 print(f"SMB user {smb_user} already exists; skipping smbpasswd.")
             else:
-                subprocess.run(["sudo", "smbpasswd", "-a", smb_user], check=False)
+                smb_user_to_add = smb_user
         else:
             print("No SMB username provided; skipping smbpasswd.")
     else:
         print("pdbedit not found; skipping smbpasswd user check.")
+
+    if shutil.which("sudo") is None:
+        print("sudo not found; cannot restore SMB files.", file=sys.stderr)
+        return 1
+    print("Sudo required to restore SMB files. You may be prompted.")
+    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
+        return 1
+
+    for svc in resolved_services:
+        enabled = subprocess.run(
+            ["sudo", "systemctl", "enable", svc], check=False
+        ).returncode
+        if enabled != 0:
+            print(f"Warning: failed to enable {svc}", file=sys.stderr)
+
+    # Load CIFS module.
+    subprocess.run(["sudo", "modprobe", "cifs"], check=False)
+
+    if smb_user_to_add:
+        subprocess.run(["sudo", "smbpasswd", "-a", smb_user_to_add], check=False)
 
     # Create local /SMB structure.
     user_name = os.environ.get("USER") or os.getlogin()

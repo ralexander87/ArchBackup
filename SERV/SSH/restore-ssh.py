@@ -68,15 +68,6 @@ Options:
 """)
         input("Press Enter to continue...")
 
-    if shutil.which("sudo") is None:
-        print("sudo not found; cannot restore SSH files.", file=sys.stderr)
-        return 1
-    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
-        return 1
-    if shutil.which("systemctl") is None:
-        print("systemctl not found; cannot manage sshd.service.", file=sys.stderr)
-        return 1
-
     if log_dir:
         log_path = Path(log_dir) / "restore-ssh.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +95,31 @@ Options:
     else:
         print("Warning: --confirm not set; proceeding without confirmation.")
 
-    # Ensure sshd.service is installed and enabled.
+    if shutil.which("systemctl") is None:
+        print("systemctl not found; cannot manage sshd.service.", file=sys.stderr)
+        return 1
+    if shutil.which("sudo") is None:
+        print("sudo not found; cannot restore SSH files.", file=sys.stderr)
+        return 1
+    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
+        return 1
+
+    script_dir = Path(__file__).resolve().parent
+    ssh_dest = Path(f"/home/{user_name}/.ssh")
+
+    rsync_opts = [
+        "rsync",
+        "-aHAX",
+        "--numeric-ids",
+        "--sparse",
+        "--delete-delay",
+        "--info=stats1",
+    ]
+
+    rsync_failures = 0
+    validation_failed = False
+
+    # Ensure sshd.service is installed.
     result = subprocess.run(
         ["systemctl", "list-unit-files", "--type=service"],
         check=False,
@@ -128,23 +143,6 @@ Options:
         if "sshd.service" not in result.stdout:
             print("Service sshd.service still not found. Exiting.")
             return 1
-    subprocess.run(["sudo", "systemctl", "enable", "sshd.service"], check=False)
-    subprocess.run(["sudo", "systemctl", "start", "sshd.service"], check=False)
-
-    script_dir = Path(__file__).resolve().parent
-    ssh_dest = Path(f"/home/{user_name}/.ssh")
-
-    rsync_opts = [
-        "rsync",
-        "-aHAX",
-        "--numeric-ids",
-        "--sparse",
-        "--delete-delay",
-        "--info=stats1",
-    ]
-
-    rsync_failures = 0
-    validation_failed = False
 
     ssh_source = script_dir / ".ssh"
     if ssh_source.is_dir():
@@ -152,10 +150,6 @@ Options:
         print(f"Restoring: {ssh_source} -> {ssh_dest.parent}")
         try:
             run_rsync([*rsync_opts, str(ssh_source), f"{ssh_dest.parent}/"])
-            subprocess.run(
-                ["sudo", "chown", "-R", f"{user_name}:{user_name}", str(ssh_dest)],
-                check=False,
-            )
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             rsync_failures += 1
@@ -164,56 +158,8 @@ Options:
         rsync_failures += 1
 
     sshd_source = script_dir / "sshd_config"
-    if sshd_source.is_file():
-        try:
-            if shutil.which("sshd") is not None:
-                if (
-                    subprocess.run(
-                        ["sudo", "sshd", "-t", "-f", str(sshd_source)],
-                        check=False,
-                    ).returncode
-                    != 0
-                ):
-                    print(
-                        "Warning: sshd -t reported errors in backup sshd_config",
-                        file=sys.stderr,
-                    )
-                    validation_failed = True
-            else:
-                print(
-                    "Warning: sshd not found; skipping backup config validation.",
-                    file=sys.stderr,
-                )
-            subprocess.run(
-                ["sudo", "cp", str(sshd_source), "/etc/ssh/sshd_config"],
-                check=True,
-            )
-            subprocess.run(
-                ["sudo", "chown", "root:root", "/etc/ssh/sshd_config"], check=True
-            )
-            subprocess.run(["sudo", "chmod", "600", "/etc/ssh/sshd_config"], check=True)
-            if shutil.which("sshd") is not None:
-                if (
-                    subprocess.run(
-                        ["sudo", "sshd", "-t", "-f", "/etc/ssh/sshd_config"],
-                        check=False,
-                    ).returncode
-                    != 0
-                ):
-                    print(
-                        "Warning: sshd -t reported errors in sshd_config",
-                        file=sys.stderr,
-                    )
-                    validation_failed = True
-            else:
-                print(
-                    "Warning: sshd not found; skipping config validation.",
-                    file=sys.stderr,
-                )
-        except subprocess.CalledProcessError as exc:
-            print(str(exc), file=sys.stderr)
-            rsync_failures += 1
-    else:
+    sshd_source_exists = sshd_source.is_file()
+    if not sshd_source_exists:
         print(f"Source file not found: {sshd_source}", file=sys.stderr)
         rsync_failures += 1
 
@@ -287,6 +233,71 @@ Options:
         print(
             "Warning: ssh-keygen not found; skipping key verification.", file=sys.stderr
         )
+
+    if shutil.which("sudo") is None:
+        print("sudo not found; cannot restore SSH files.", file=sys.stderr)
+        return 1
+    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
+        return 1
+
+    if ssh_dest.is_dir():
+        subprocess.run(
+            ["sudo", "chown", "-R", f"{user_name}:{user_name}", str(ssh_dest)],
+            check=False,
+        )
+
+    if sshd_source_exists:
+        try:
+            if shutil.which("sshd") is not None:
+                if (
+                    subprocess.run(
+                        ["sudo", "sshd", "-t", "-f", str(sshd_source)],
+                        check=False,
+                    ).returncode
+                    != 0
+                ):
+                    print(
+                        "Warning: sshd -t reported errors in backup sshd_config",
+                        file=sys.stderr,
+                    )
+                    validation_failed = True
+            else:
+                print(
+                    "Warning: sshd not found; skipping backup config validation.",
+                    file=sys.stderr,
+                )
+            subprocess.run(
+                ["sudo", "cp", str(sshd_source), "/etc/ssh/sshd_config"],
+                check=True,
+            )
+            subprocess.run(
+                ["sudo", "chown", "root:root", "/etc/ssh/sshd_config"], check=True
+            )
+            subprocess.run(["sudo", "chmod", "600", "/etc/ssh/sshd_config"], check=True)
+            if shutil.which("sshd") is not None:
+                if (
+                    subprocess.run(
+                        ["sudo", "sshd", "-t", "-f", "/etc/ssh/sshd_config"],
+                        check=False,
+                    ).returncode
+                    != 0
+                ):
+                    print(
+                        "Warning: sshd -t reported errors in sshd_config",
+                        file=sys.stderr,
+                    )
+                    validation_failed = True
+            else:
+                print(
+                    "Warning: sshd not found; skipping config validation.",
+                    file=sys.stderr,
+                )
+        except subprocess.CalledProcessError as exc:
+            print(str(exc), file=sys.stderr)
+            rsync_failures += 1
+
+    subprocess.run(["sudo", "systemctl", "enable", "sshd.service"], check=False)
+    subprocess.run(["sudo", "systemctl", "start", "sshd.service"], check=False)
 
     # Restart sshd and confirm it is active.
     if not no_restart:

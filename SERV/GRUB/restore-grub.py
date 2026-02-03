@@ -23,14 +23,6 @@ Options:
 """)
         input("Press Enter to continue...")
 
-    # Require sudo.
-    if shutil.which("sudo") is None:
-        print("sudo not found; cannot restore GRUB files.", file=sys.stderr)
-        return 1
-    print("Sudo required to restore GRUB files. You may be prompted.")
-    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
-        return 1
-
     # Confirm destructive restore if requested.
     if confirm_restore:
         if auto_yes:
@@ -51,6 +43,14 @@ Options:
         return 1
     if not src.is_dir():
         print(f"Source not found: {src}", file=sys.stderr)
+        return 1
+
+    # Require sudo.
+    if shutil.which("sudo") is None:
+        print("sudo not found; cannot restore GRUB files.", file=sys.stderr)
+        return 1
+    print("Sudo required to restore GRUB files. You may be prompted.")
+    if subprocess.run(["sudo", "-v"], check=False).returncode != 0:
         return 1
 
     print(f"Restoring: {src} -> {dest}")

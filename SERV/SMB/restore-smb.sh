@@ -42,20 +42,6 @@ EOF
 	read -r -p "Press Enter to continue..." _
 fi
 
-# Require sudo and systemctl.
-if command -v sudo >/dev/null 2>&1; then
-	echo "Sudo required to restore SMB files. You may be prompted."
-	sudo -v || exit 1
-else
-	echo "sudo not found; cannot restore SMB files." >&2
-	exit 1
-fi
-
-if ! command -v systemctl >/dev/null 2>&1; then
-	echo "systemctl not found; cannot manage services." >&2
-	exit 1
-fi
-
 # Confirm destructive restore if requested.
 if $confirm_restore; then
 	if $auto_yes; then
@@ -67,6 +53,12 @@ if $confirm_restore; then
 		echo "Restore cancelled."
 		exit 0
 	fi
+fi
+
+# Require systemctl for service discovery.
+if ! command -v systemctl >/dev/null 2>&1; then
+	echo "systemctl not found; cannot manage services." >&2
+	exit 1
 fi
 
 # Resolve service names across distros (e.g. smbd vs smb).
@@ -120,6 +112,36 @@ for i in "${!service_groups[@]}"; do
 	fi
 done
 
+# Optional smbpasswd user setup.
+smb_user_to_add=""
+if command -v pdbedit >/dev/null 2>&1; then
+	read -r -p "Enter SMB username for smbpasswd: " smb_user
+	if [[ -n "$smb_user" ]]; then
+		if pdbedit -L 2>/dev/null | awk -F: '{print $1}' | grep -qx "$smb_user"; then
+			echo "SMB user ${smb_user} already exists; skipping smbpasswd."
+		else
+			smb_user_to_add="$smb_user"
+		fi
+	else
+		echo "No SMB username provided; skipping smbpasswd."
+	fi
+else
+	echo "pdbedit not found; skipping smbpasswd user check."
+fi
+
+# Require sudo for install/enable and system changes.
+if command -v sudo >/dev/null 2>&1; then
+	echo "Sudo required to restore SMB files. You may be prompted."
+	sudo -v || exit 1
+else
+	echo "sudo not found; cannot restore SMB files." >&2
+	exit 1
+fi
+
+if [[ -n "$smb_user_to_add" ]]; then
+	sudo smbpasswd -a "$smb_user_to_add"
+fi
+
 for svc in "${resolved_services[@]}"; do
 	if sudo systemctl enable "$svc"; then
 		:
@@ -129,22 +151,6 @@ for svc in "${resolved_services[@]}"; do
 done
 
 sudo modprobe cifs
-
-# Optional smbpasswd user setup.
-if command -v pdbedit >/dev/null 2>&1; then
-	read -r -p "Enter SMB username for smbpasswd: " smb_user
-	if [[ -n "$smb_user" ]]; then
-		if pdbedit -L 2>/dev/null | awk -F: '{print $1}' | grep -qx "$smb_user"; then
-			echo "SMB user ${smb_user} already exists; skipping smbpasswd."
-		else
-			sudo smbpasswd -a "$smb_user"
-		fi
-	else
-		echo "No SMB username provided; skipping smbpasswd."
-	fi
-else
-	echo "pdbedit not found; skipping smbpasswd user check."
-fi
 
 # Create local /SMB structure.
 owner_user="${SUDO_USER:-$user_name}"

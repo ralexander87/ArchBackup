@@ -60,21 +60,6 @@ EOF_BANNER
 	read -r -p "Press Enter to continue..." _
 fi
 
-# Require sudo for sshd_config.
-# Require sudo for sshd_config and service management.
-if command -v sudo >/dev/null 2>&1; then
-	echo "Sudo required to restore SSH files. You may be prompted."
-	sudo -v || exit 1
-else
-	echo "sudo not found; cannot restore SSH files." >&2
-	exit 1
-fi
-
-if ! command -v systemctl >/dev/null 2>&1; then
-	echo "systemctl not found; cannot manage sshd.service." >&2
-	exit 1
-fi
-
 # Optional log redirection.
 if [[ -n "$log_dir" ]]; then
 	mkdir -p "$log_dir"
@@ -104,7 +89,13 @@ else
 	echo "Warning: --confirm not set; proceeding without confirmation."
 fi
 
-# Ensure sshd.service is installed and enabled.
+# Require systemctl for service discovery.
+if ! command -v systemctl >/dev/null 2>&1; then
+	echo "systemctl not found; cannot manage sshd.service." >&2
+	exit 1
+fi
+
+# Ensure sshd.service is installed.
 if ! systemctl list-unit-files --type=service | awk '{print $1}' | grep -qx "sshd.service"; then
 	read -r -p "Service sshd.service is not installed. Install it now? [y/N]: " answer
 	if [[ ! "$answer" =~ ^[yY]$ ]]; then
@@ -117,16 +108,6 @@ if ! systemctl list-unit-files --type=service | awk '{print $1}' | grep -qx "ssh
 		echo "Service sshd.service still not found. Exiting."
 		exit 1
 	fi
-fi
-if sudo systemctl enable sshd.service; then
-	:
-else
-	echo "Warning: failed to enable sshd.service" >&2
-fi
-if sudo systemctl start sshd.service; then
-	:
-else
-	echo "Warning: failed to start sshd.service" >&2
 fi
 
 # Rsync defaults.
@@ -164,8 +145,6 @@ ssh_dest="/home/${user_name}/.ssh"
 if [[ -d "${script_dir}/.ssh" ]]; then
 	mkdir -p "$ssh_dest"
 	run_rsync "${script_dir}/.ssh" "/home/${user_name}/"
-	# Ensure correct ownership for restored .ssh.
-	sudo chown -R "${user_name}:${user_name}" "$ssh_dest" || true
 else
 	echo "Source folder not found: ${script_dir}/.ssh" >&2
 	rsync_failures=$((rsync_failures + 1))
@@ -173,29 +152,7 @@ fi
 
 # Restore sshd_config.
 if [[ -f "${script_dir}/sshd_config" ]]; then
-	if command -v sshd >/dev/null 2>&1; then
-		if sudo sshd -t -f "${script_dir}/sshd_config" >/dev/null 2>&1; then
-			:
-		else
-			echo "Warning: sshd -t reported errors in backup sshd_config" >&2
-			validation_failed=true
-		fi
-	else
-		echo "Warning: sshd not found; skipping backup config validation." >&2
-	fi
-	sudo cp "${script_dir}/sshd_config" /etc/ssh/sshd_config
-	sudo chown root:root /etc/ssh/sshd_config
-	sudo chmod 600 /etc/ssh/sshd_config
-	if command -v sshd >/dev/null 2>&1; then
-		if sudo sshd -t -f /etc/ssh/sshd_config >/dev/null 2>&1; then
-			:
-		else
-			echo "Warning: sshd -t reported errors in sshd_config" >&2
-			validation_failed=true
-		fi
-	else
-		echo "Warning: sshd not found; skipping config validation." >&2
-	fi
+	:
 else
 	echo "Source file not found: ${script_dir}/sshd_config" >&2
 	rsync_failures=$((rsync_failures + 1))
@@ -232,6 +189,57 @@ if command -v ssh-keygen >/dev/null 2>&1; then
 	done
 else
 	echo "Warning: ssh-keygen not found; skipping key verification." >&2
+fi
+
+# Require sudo for sshd_config and service management.
+if command -v sudo >/dev/null 2>&1; then
+	echo "Sudo required to restore SSH files. You may be prompted."
+	sudo -v || exit 1
+else
+	echo "sudo not found; cannot restore SSH files." >&2
+	exit 1
+fi
+
+# Ensure correct ownership for restored .ssh.
+if [[ -d "$ssh_dest" ]]; then
+	sudo chown -R "${user_name}:${user_name}" "$ssh_dest" || true
+fi
+
+if [[ -f "${script_dir}/sshd_config" ]]; then
+	if command -v sshd >/dev/null 2>&1; then
+		if sudo sshd -t -f "${script_dir}/sshd_config" >/dev/null 2>&1; then
+			:
+		else
+			echo "Warning: sshd -t reported errors in backup sshd_config" >&2
+			validation_failed=true
+		fi
+	else
+		echo "Warning: sshd not found; skipping backup config validation." >&2
+	fi
+	sudo cp "${script_dir}/sshd_config" /etc/ssh/sshd_config
+	sudo chown root:root /etc/ssh/sshd_config
+	sudo chmod 600 /etc/ssh/sshd_config
+	if command -v sshd >/dev/null 2>&1; then
+		if sudo sshd -t -f /etc/ssh/sshd_config >/dev/null 2>&1; then
+			:
+		else
+			echo "Warning: sshd -t reported errors in sshd_config" >&2
+			validation_failed=true
+		fi
+	else
+		echo "Warning: sshd not found; skipping config validation." >&2
+	fi
+fi
+
+if sudo systemctl enable sshd.service; then
+	:
+else
+	echo "Warning: failed to enable sshd.service" >&2
+fi
+if sudo systemctl start sshd.service; then
+	:
+else
+	echo "Warning: failed to start sshd.service" >&2
 fi
 
 # Restart sshd and confirm it is active.

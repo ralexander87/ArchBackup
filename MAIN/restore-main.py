@@ -63,17 +63,6 @@ Options:
         except OSError:
             pass
 
-    # SDDM user update (sudo).
-    sddm_conf = Path("/usr/lib/sddm/sddm.conf.d/default.conf")
-    if sddm_conf.is_file():
-        if shutil.which("sudo") is not None:
-            subprocess.run(
-                ["sudo", "sed", "-i", f"s/^User=.*/User={user_name}/", str(sddm_conf)],
-                check=False,
-            )
-        else:
-            print("sudo not found; skipping SDDM User update.")
-
     # Confirm destructive restore if requested.
     if confirm_restore:
         if auto_yes:
@@ -181,6 +170,17 @@ Options:
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             rsync_failures += 1
+
+    # SDDM user update (sudo).
+    sddm_conf = Path("/usr/lib/sddm/sddm.conf.d/default.conf")
+    if sddm_conf.is_file():
+        if shutil.which("sudo") is not None:
+            subprocess.run(
+                ["sudo", "sed", "-i", f"s/^User=.*/User={user_name}/", str(sddm_conf)],
+                check=False,
+            )
+        else:
+            print("sudo not found; skipping SDDM User update.")
 
     print(f"Restore completed from: {script_dir}")
     summary = (
