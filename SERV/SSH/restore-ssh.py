@@ -302,7 +302,8 @@ Options:
 
     print(f"Restore completed from: {script_dir}")
     print(
-        f"Summary: rsync_failures={rsync_failures}, validation_failed={validation_failed}"
+        "Summary: rsync_failures="
+        f"{rsync_failures}, validation_failed={validation_failed}"
     )
     return 1 if (rsync_failures or validation_failed) else 0
 

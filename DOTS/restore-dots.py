@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
 

@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -189,7 +188,8 @@ Options:
         except subprocess.CalledProcessError as exc:
             if exc.returncode == 1:
                 print(
-                    f"Compression completed with warnings for {run_dir} (exit {exc.returncode}).",
+                    "Compression completed with warnings for "
+                    f"{run_dir} (exit {exc.returncode}).",
                     file=sys.stderr,
                 )
                 if exc.stderr:
