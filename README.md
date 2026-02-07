@@ -1,5 +1,30 @@
 # Backup Scripts
 
+Portable backup/restore scripts for Linux systems. Includes Bash and Python variants for MAIN, DOTS, and services (GRUB, SMB, SSH). Designed for removable media under `/run/media/$USER` or `/media/$USER` and timestamped backups.
+
+## Highlights
+- Paired `.sh` and `.py` scripts for each area
+- rsync-based backups with metadata preservation
+- Optional compressed archives (pigz)
+- Timestamped, self-contained restore folders
+- Flags for non-interactive runs
+
+## Requirements
+- Linux with `rsync`
+- Python `>=3.12` for `.py` scripts
+- Optional: `pigz` for compression
+- Optional (service scripts): `sudo`, `systemctl`, `testparm`, `sshd`, `pdbedit`
+
+## Quick Start
+```bash
+./MAIN/backup-main.sh
+./MAIN/restore-main.sh --confirm
+```
+
+## Safety Notes
+- Restore scripts use `rsync --delete-delay` and can delete files not present in the backup.
+- Service restores modify system files and require sudo.
+
 ## Overview
 This repository contains a set of Bash and Python scripts to back up and restore:
 - **MAIN** data (user and system files)
@@ -77,6 +102,7 @@ Backups and restores use rsync with metadata preservation:
 - MAIN backups write logs inside the backup folder by default.
 - DOTS backups can write logs to `--log-dir`.
 - You can redirect logs to a separate location with `--log-dir`.
+- `.log` files are ignored by git.
 
 ### Manifests
 Backups write a manifest file:
