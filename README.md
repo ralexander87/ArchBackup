@@ -82,7 +82,7 @@ BACKUP/
       restore-ssh.py
   scripts/
     common.sh
-  common.py
+    common.py
 ```
 
 ## Shared Behavior

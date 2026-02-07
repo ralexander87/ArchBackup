@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from common import check_free_space, list_destinations, select_destination
 
