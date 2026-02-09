@@ -129,7 +129,7 @@ for src in "${sources[@]}"; do
 	run_rsync "$src" "${run_dir}/"
 done
 
-# LUKS header backup (NVMe partitions).
+# LUKS header backup (NVMe partitions only).
 if command -v cryptsetup >/dev/null 2>&1; then
 	luks_found=false
 	shopt -s nullglob
@@ -137,6 +137,7 @@ if command -v cryptsetup >/dev/null 2>&1; then
 		if sudo cryptsetup isLuks "$dev" >/dev/null 2>&1; then
 			luks_found=true
 			base_name="$(basename "$dev")"
+			# Keep headers next to other REST artifacts, named by device.
 			header_path="${run_dir}/luks-header-${base_name}.bin"
 			echo "Backing up LUKS header: ${dev} -> ${header_path}"
 			if sudo cryptsetup luksHeaderBackup "$dev" --header-backup-file "$header_path"; then

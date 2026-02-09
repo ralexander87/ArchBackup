@@ -1,6 +1,6 @@
 # Backup Scripts
 
-Portable backup/restore scripts for Linux systems. Includes Bash and Python variants for MAIN, DOTS, and services (GRUB, SMB, SSH). Designed for removable media under `/run/media/$USER` or `/media/$USER` and timestamped backups.
+Portable backup/restore scripts for Linux systems. Includes Bash and Python variants for MAIN, DOTS, and services (GRUB, SMB, SSH, REST). Designed for removable media under `/run/media/$USER` or `/media/$USER` and timestamped backups.
 
 ## Highlights
 - Paired `.sh` and `.py` scripts for each area
@@ -31,6 +31,7 @@ This repository contains a set of Bash and Python scripts to back up and restore
 - **DOTS** (dotfiles and app configuration)
 - **GRUB** (bootloader config and theme assets)
 - **SMB** (samba config + service setup + fstab entries)
+- **REST** (misc system config + LUKS header backups)
 
 Each area has paired shell (`.sh`) and Python (`.py`) scripts. The scripts are designed to:
 - Preserve ownership, permissions, and metadata (rsync with archive + ACL/Xattr).
@@ -45,6 +46,7 @@ All backups are written into a folder on the selected external destination:
 - DOTS: `.../DOTS/DOTS-<timestamp>/`
 - GRUB: `.../SERV/GRUB/GRUB-<timestamp>/`
 - SMB: `.../SERV/SMB/SMB-<timestamp>/`
+- REST: `.../SERV/REST/REST-<timestamp>/`
 
 Timestamp format used across the project:
 ```
@@ -80,6 +82,9 @@ BACKUP/
       backup-ssh.py
       restore-ssh.sh
       restore-ssh.py
+    REST/
+      backup-rest.sh
+      backup-rest.py
   scripts/
     common.sh
     common.py
@@ -260,15 +265,6 @@ Additional restore steps:
   ```
   env = AQ_DRM_DEVICES,/dev/dri/card1:/dev/dri/card2
   ```
-- Downloads Dracula qBittorrent theme if needed:
-  ```
-  ~/.config/qBittorrent/dracula.qbtheme
-  ```
-- Updates qBittorrent config:
-  ```
-  General\CustomUIThemePath=/home/$USER/.config/qBittorrent/dracula.qbtheme
-  General\UseCustomUITheme=true
-  ```
 
 ## GRUB Backups
 GRUB backup scripts prompt for sudo and copy:
@@ -349,6 +345,24 @@ SSH restore scripts:
 - Optional: verify key fingerprints with `ssh-keygen -lf`
 - Restart `sshd.service` unless `--no-restart` is set
 
+## REST Backups
+REST backup scripts copy:
+```
+/etc/mkinitcpio.conf
+/usr/share/plymouth/plymouthd.defaults
+/usr/lib/sddm/sddm.conf.d/default.conf
+```
+
+Additional behavior:
+- Detects LUKS partitions under `/dev/nvme*n*p*` and writes headers as:
+  - `luks-header-<device>.bin`
+- Requires `cryptsetup` for LUKS header backup
+
+Destination:
+```
+.../SERV/REST/
+```
+
 ## Flags
 ### Backup scripts
 - `--no-compress`: skip compression prompt
@@ -426,6 +440,12 @@ SSH restore scripts:
 ```bash
 ./SERV/SSH/restore-ssh.sh --confirm
 ./SERV/SSH/restore-ssh.py --confirm --no-restart
+```
+
+### REST backup
+```bash
+./SERV/REST/backup-rest.sh
+./SERV/REST/backup-rest.py
 ```
 
 ## Notes

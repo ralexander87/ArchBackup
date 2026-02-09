@@ -115,19 +115,23 @@ Options:
             print(str(exc), file=sys.stderr)
             rsync_failures += 1
 
-    # LUKS header backup (NVMe partitions).
+    # LUKS header backup (NVMe partitions only).
     if shutil.which("cryptsetup") is None:
         print("cryptsetup not found; skipping LUKS header backup.")
     else:
         luks_found = False
         for dev in Path("/dev").glob("nvme*n*p*"):
-            if subprocess.run(
-                ["sudo", "cryptsetup", "isLuks", str(dev)],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            ).returncode == 0:
+            if (
+                subprocess.run(
+                    ["sudo", "cryptsetup", "isLuks", str(dev)],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                ).returncode
+                == 0
+            ):
                 luks_found = True
+                # Keep headers next to other REST artifacts, named by device.
                 header_path = run_dir / f"luks-header-{dev.name}.bin"
                 print(f"Backing up LUKS header: {dev} -> {header_path}")
                 result = subprocess.run(
