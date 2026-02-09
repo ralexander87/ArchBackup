@@ -8,6 +8,7 @@ user_name="${USER:-$(id -un)}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 show_banner=true
 auto_yes=false
+run_luks=true
 
 # Parse flags.
 while [[ $# -gt 0 ]]; do
@@ -18,6 +19,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--yes)
 		auto_yes=true
+		shift
+		;;
+	--no-luks)
+		run_luks=false
 		shift
 		;;
 	*)
@@ -33,6 +38,7 @@ Backup REST
 Options:
   --no-banner  Skip this prompt
   --yes        Auto-confirm prompts
+  --no-luks    Skip LUKS header backup
 EOF
 	read -r -p "Press Enter to continue..." _
 fi
@@ -90,6 +96,7 @@ rsync_opts=(
 )
 
 rsync_failures=0
+missing_sources=0
 
 run_rsync() {
 	local src="$1"
@@ -124,14 +131,17 @@ sources=(
 for src in "${sources[@]}"; do
 	if [[ ! -e "$src" ]]; then
 		echo "Skipping missing source: ${src}"
+		missing_sources=$((missing_sources + 1))
 		continue
 	fi
 	run_rsync "$src" "${run_dir}/"
 done
 
 # LUKS header backup (NVMe partitions only).
-if command -v cryptsetup >/dev/null 2>&1; then
+if [[ "$run_luks" == true ]] && command -v cryptsetup >/dev/null 2>&1; then
 	luks_found=false
+	luks_failed=0
+	luks_log="${run_dir}/cryptsetup.log"
 	shopt -s nullglob
 	for dev in /dev/nvme*n*p*; do
 		if sudo cryptsetup isLuks "$dev" >/dev/null 2>&1; then
@@ -140,10 +150,12 @@ if command -v cryptsetup >/dev/null 2>&1; then
 			# Keep headers next to other REST artifacts, named by device.
 			header_path="${run_dir}/luks-header-${base_name}.bin"
 			echo "Backing up LUKS header: ${dev} -> ${header_path}"
-			if sudo cryptsetup luksHeaderBackup "$dev" --header-backup-file "$header_path"; then
+			if sudo cryptsetup luksHeaderBackup "$dev" \
+				--header-backup-file "$header_path" 2>>"$luks_log"; then
 				sudo chown "${user_name}:${user_name}" "$header_path" || true
 			else
 				echo "Warning: failed to back up LUKS header for ${dev}" >&2
+				luks_failed=$((luks_failed + 1))
 			fi
 		fi
 	done
@@ -151,7 +163,7 @@ if command -v cryptsetup >/dev/null 2>&1; then
 	if [[ "$luks_found" == false ]]; then
 		echo "No LUKS headers found on /dev/nvme* partitions."
 	fi
-else
+elif [[ "$run_luks" == true ]]; then
 	echo "cryptsetup not found; skipping LUKS header backup."
 fi
 
@@ -188,7 +200,7 @@ if [[ "$compress_backup" == true ]]; then
 fi
 
 echo "Backup completed: ${run_dir}"
-echo "Summary: rsync_failures=${rsync_failures}, tar_failed=${tar_failed}"
+echo "Summary: rsync_failures=${rsync_failures}, missing_sources=${missing_sources}, tar_failed=${tar_failed}"
 if ((rsync_failures > 0)) || [[ "$tar_failed" == true ]]; then
 	exit 1
 fi

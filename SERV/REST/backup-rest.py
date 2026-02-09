@@ -41,11 +41,13 @@ def main() -> int:
     user_name = os.environ.get("USER") or os.getlogin()
     show_banner = "--no-banner" not in sys.argv
     auto_yes = "--yes" in sys.argv
+    run_luks = "--no-luks" not in sys.argv
     if show_banner:
         print("""Backup REST
 Options:
   --no-banner  Skip this prompt
   --yes        Auto-confirm prompts
+  --no-luks    Skip LUKS header backup
 """)
         input("Press Enter to continue...")
 
@@ -104,9 +106,11 @@ Options:
         pass
 
     rsync_failures = 0
+    missing_sources = 0
     for src in sources:
         if not src.exists():
             print(f"Skipping missing source: {src}")
+            missing_sources += 1
             continue
         print(f"Copying: {src} -> {run_dir}")
         try:
@@ -116,10 +120,14 @@ Options:
             rsync_failures += 1
 
     # LUKS header backup (NVMe partitions only).
-    if shutil.which("cryptsetup") is None:
+    if not run_luks:
+        pass
+    elif shutil.which("cryptsetup") is None:
         print("cryptsetup not found; skipping LUKS header backup.")
     else:
         luks_found = False
+        luks_failed = 0
+        luks_log = run_dir / "cryptsetup.log"
         for dev in Path("/dev").glob("nvme*n*p*"):
             if (
                 subprocess.run(
@@ -134,17 +142,21 @@ Options:
                 # Keep headers next to other REST artifacts, named by device.
                 header_path = run_dir / f"luks-header-{dev.name}.bin"
                 print(f"Backing up LUKS header: {dev} -> {header_path}")
-                result = subprocess.run(
-                    [
-                        "sudo",
-                        "cryptsetup",
-                        "luksHeaderBackup",
-                        str(dev),
-                        "--header-backup-file",
-                        str(header_path),
-                    ],
-                    check=False,
-                )
+                with luks_log.open("a", encoding="utf-8") as log_handle:
+                    result = subprocess.run(
+                        [
+                            "sudo",
+                            "cryptsetup",
+                            "luksHeaderBackup",
+                            str(dev),
+                            "--header-backup-file",
+                            str(header_path),
+                        ],
+                        check=False,
+                        stdout=log_handle,
+                        stderr=log_handle,
+                        text=True,
+                    )
                 if result.returncode == 0:
                     subprocess.run(
                         ["sudo", "chown", f"{user_name}:{user_name}", str(header_path)],
@@ -155,6 +167,7 @@ Options:
                         f"Warning: failed to back up LUKS header for {dev}",
                         file=sys.stderr,
                     )
+                    luks_failed += 1
         if not luks_found:
             print("No LUKS headers found on /dev/nvme* partitions.")
 
@@ -216,7 +229,12 @@ Options:
                 tar_failed = True
 
     print(f"Backup completed: {run_dir}")
-    print(f"Summary: rsync_failures={rsync_failures}, tar_failed={tar_failed}")
+    print(
+        "Summary: "
+        f"rsync_failures={rsync_failures}, "
+        f"missing_sources={missing_sources}, "
+        f"tar_failed={tar_failed}"
+    )
     if rsync_failures or tar_failed:
         return 1
     return 0
