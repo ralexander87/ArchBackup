@@ -357,6 +357,8 @@ Additional behavior:
 - Detects LUKS partitions under `/dev/nvme*n*p*` and writes headers as:
   - `luks-header-<device>.bin`
 - Requires `cryptsetup` for LUKS header backup
+- Use `--no-luks` to skip LUKS header backup
+- LUKS errors are logged to `cryptsetup.log` inside the REST run folder
 
 Destination:
 ```
