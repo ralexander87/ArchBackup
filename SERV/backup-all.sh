@@ -33,6 +33,7 @@ run_script "DOTS" "${script_dir}/../DOTS/backup-dots.sh" || failures=$((failures
 run_script "GRUB" "${script_dir}/GRUB/backup-grub.sh" || failures=$((failures + 1))
 run_script "SMB" "${script_dir}/SMB/backup-smb.sh" || failures=$((failures + 1))
 run_script "SSH" "${script_dir}/SSH/backup-ssh.sh" || failures=$((failures + 1))
+run_script "REST" "${script_dir}/REST/backup-rest.sh" || failures=$((failures + 1))
 
 echo "SERV backups completed. failures=${failures}"
 if ((failures > 0)); then
