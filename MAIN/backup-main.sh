@@ -241,17 +241,30 @@ tar_failed=false
 if [[ "$compress_backup" == true ]]; then
 	archive_path="${backup_dir}/BKP-${timestamp}.tar.gz"
 	tar_err="$(mktemp)"
-	archive_tmp="$(mktemp --suffix=.tar.gz)"
-	if tar --use-compress-program=pigz -cpf "$archive_tmp" -C "$backup_dir" "." 2>"$tar_err"; then
-		mv -f "$archive_tmp" "$archive_path"
+	# Write archive directly into backup_dir to avoid filling /tmp on large backups.
+	if tar --use-compress-program=pigz \
+		--warning=no-file-changed \
+		--exclude "./BKP-${timestamp}.tar.gz" \
+		--exclude "./BKP-${timestamp}.log" \
+		-cpf "$archive_path" \
+		-C "$backup_dir" "." 2>"$tar_err"; then
 		echo "Compressed archive created: ${archive_path}"
 	else
 		rc=$?
-		echo "Compression failed for ${backup_dir} (exit ${rc})." >&2
-		echo "Details:" >&2
-		tail -n 20 "$tar_err" >&2
-		tar_failed=true
-		rm -f "$archive_tmp"
+		if [[ $rc -eq 1 ]]; then
+			echo "Compression completed with warnings for ${backup_dir} (exit ${rc})." >&2
+			if [[ -s "$tar_err" ]]; then
+				echo "Details:" >&2
+				tail -n 20 "$tar_err" >&2
+			fi
+		else
+			echo "Compression failed for ${backup_dir} (exit ${rc})." >&2
+			if [[ -s "$tar_err" ]]; then
+				echo "Details:" >&2
+				tail -n 20 "$tar_err" >&2
+			fi
+			tar_failed=true
+		fi
 	fi
 	rm -f "$tar_err"
 fi

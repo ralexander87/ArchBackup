@@ -9,7 +9,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -284,13 +283,17 @@ Options:
     tar_failed = False
     if compress_backup:
         archive_path = backup_dir / f"BKP-{timestamp}.tar.gz"
-        tmp_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz")
-        tmp_handle.close()
+        # Write archive directly into backup_dir to avoid filling /tmp on large backups.
         tar_cmd = [
             "tar",
             "--use-compress-program=pigz",
+            "--warning=no-file-changed",
+            "--exclude",
+            f"./BKP-{timestamp}.tar.gz",
+            "--exclude",
+            f"./BKP-{timestamp}.log",
             "-cpf",
-            tmp_handle.name,
+            str(archive_path),
             "-C",
             str(backup_dir),
             ".",
@@ -305,19 +308,23 @@ Options:
             )
             if result.stderr:
                 logger.error("tar: %s", result.stderr.strip())
-            shutil.move(tmp_handle.name, archive_path)
             logger.info("Compressed archive created: %s", archive_path)
         except subprocess.CalledProcessError as exc:
-            logger.error(
-                "Compression failed for %s (exit %s).", backup_dir, exc.returncode
-            )
-            if exc.stderr:
-                logger.error("tar: %s", exc.stderr.strip())
-            tar_failed = True
-            try:
-                Path(tmp_handle.name).unlink(missing_ok=True)
-            except OSError:
-                pass
+            if exc.returncode == 1:
+                logger.warning(
+                    "Compression completed with warnings for %s (exit %s).",
+                    backup_dir,
+                    exc.returncode,
+                )
+                if exc.stderr:
+                    logger.error("tar: %s", exc.stderr.strip())
+            else:
+                logger.error(
+                    "Compression failed for %s (exit %s).", backup_dir, exc.returncode
+                )
+                if exc.stderr:
+                    logger.error("tar: %s", exc.stderr.strip())
+                tar_failed = True
 
     logger.info("Backup completed: %s", backup_dir)
     logger.info(
