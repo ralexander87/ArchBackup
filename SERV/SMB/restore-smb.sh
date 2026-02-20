@@ -176,9 +176,9 @@ done
 # Append SMB mounts to /etc/fstab if missing.
 fstab_lines=(
 	"//192.168.8.60/d   /SMB/euclid   cifs   _netdev,credentials=/etc/samba/creds-euclid,uid=1000,gid=1000   0 0"
-	"//192.168.8.155/hdd-01   /SMB/SCP/HDD-01   cifs   _netdev,credentials=/etc/samba/creds-scp,uid=1000,gid=1000   0 0"
-	"//192.168.8.155/hdd-02   /SMB/SCP/HDD-02   cifs   _netdev,credentials=/etc/samba/creds-scp,uid=1000,gid=1000   0 0"
-	"//192.168.8.155/hdd-03   /SMB/SCP/HDD-03   cifs   _netdev,credentials=/etc/samba/creds-scp,uid=1000,gid=1000   0 0"
+	"//192.168.8.150/hdd-01   /SMB/SCP/HDD-01   cifs   _netdev,credentials=/etc/samba/creds-scp,uid=1000,gid=1000   0 0"
+	"//192.168.8.150/hdd-02   /SMB/SCP/HDD-02   cifs   _netdev,credentials=/etc/samba/creds-scp,uid=1000,gid=1000   0 0"
+	"//192.168.8.150/hdd-03   /SMB/SCP/HDD-03   cifs   _netdev,credentials=/etc/samba/creds-scp,uid=1000,gid=1000   0 0"
 )
 
 if sudo test -f /etc/fstab; then
